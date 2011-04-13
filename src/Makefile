@@ -4,7 +4,9 @@ LDFLAGS=`pkg-config --libs opencv`
 
 .PHONY: clean
 
-showdwt: libdwt.o showdwt.o
+showdwt: libdwt.o showdwt.o libdwt.h
+
+libdwt.o: libdwt.c libdwt.h
 
 clean:
 	-$(RM) *.o showdwt
