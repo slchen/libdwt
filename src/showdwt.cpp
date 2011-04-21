@@ -1,104 +1,234 @@
+/**
+ * @file
+ * @author David Barina <ibarina@fit.vutbr.cz>
+ * @brief Example application showing variants of image fast wavelet transform.
+ */
 #include "libdwt.h"
 
 #include <iostream>
+#include <cmath>
 #include <cv.h>
 #include <highgui.h>
+
+/**
+ * This example can work with grayscale or color image.
+ */
+#define WITH_COLOR
 
 using namespace std;
 using namespace cv;
 
 /**
- * decompozition up to 2 coefficients, note that decomposition of 1 coeficient does not make any sense, so set to 2 for full decomposition
+ * Fast integer math function. Returns 1<<(int)ceil(log2(x)).
  */
-static const int min_rows = 2;
-
-/**
- * forward image DWT using fwt97 function
- */
-void fwt(Mat_<double> &f)
+static
+int pow2_ceil_log2(int x)
 {
-	Mat_<double> t(Size(f.rows,1));
+	assert(x > 0);
 
-	for(int rows = f.rows; rows >= min_rows; rows>>=1)
+	x = (x-1) << 1;
+
+	int y = 0;
+	while(x > 1)
 	{
-		for(int y = 0; y < rows; y++)
-			dwt_cdf97_f(f.ptr<double>(y), f.ptr<double>(y), t.ptr<double>(0), rows);
-		transpose(f,f);
-		for(int y = 0; y < rows; y++)
-			dwt_cdf97_f(f.ptr<double>(y), f.ptr<double>(y), t.ptr<double>(0), rows);
-		transpose(f,f);
+		x >>= 1;
+		y++;
 	}
+
+	return 1 << y;
 }
 
 /**
- * inverse image DWT using iwt97
+ * Shows DWT coefficients.
  */
-void iwt(Mat_<double> &f)
+void wtshow(const char *name, Mat &f)
 {
-	Mat_<double> t(Size(f.rows,1));
-
-	for(int rows = min_rows; rows <= f.rows; rows<<=1)
-	{
-		for(int y = 0; y < rows; y++)
-			dwt_cdf97_i(f.ptr<double>(y), f.ptr<double>(y), t.ptr<double>(0), rows);
-		transpose(f,f);
-		for(int y = 0; y < rows; y++)
-			dwt_cdf97_i(f.ptr<double>(y), f.ptr<double>(y), t.ptr<double>(0), rows);
-		transpose(f,f);
-	}
-}
-
-/**
- * image should have the same number of rows like columns and these must be a power of two
- */
-void resize(Mat_<double> &f)
-{
-	int rows = 1<<(int)ceil(log(f.rows)/log(2));
-	int cols = 1<<(int)ceil(log(f.cols)/log(2));
-	int size = max(rows, cols);
-
-	if( f.rows == size && f.cols == size)
-	{
-		cout << "good size (" << f.rows << "," << f.cols << "), no resize needed" << endl;
-	}
-	else
-	{
-		cout << "resizing (" << f.rows << "," << f.cols << ") to (" << size << "," << size << ")..." << endl;
-		copyMakeBorder(f.clone(), f, 0, size-f.rows, 0, size-f.cols, BORDER_CONSTANT);
-	}
-
-	// not necessary
-	if( (f.rows != f.cols) || !(f.rows && !( (f.rows-1) & f.rows )) )
-		CV_Error_(CV_StsOutOfRange, ("the matrix size (%d,%d) have to be power of 2 and number of rows have to be equal to number of columns", f.rows, f.cols));
-}
-
-/**
- * helper function to show DWT coefficients
- */
-void show_dwt(const char *name, Mat_<double> &f)
-{
-	Mat_<double> g(f.clone());
+	Mat g(f.clone());
 	log(abs(g),g);
-	imshow (name, Mat_<uchar>(g*32));
+	imshow(name, g*32/256);
 }
 
-int main(int argc, char** argv)
+/**
+ * Resize image.
+ * The image should have the number of rows and columns equal to a power of two.
+ */
+void resize_pow2(Mat &f)
 {
-	const char *imagename = argc > 1
-		? argv[1] : "Lenna.png";
+	int rows = pow2_ceil_log2(f.rows);
+	int cols = pow2_ceil_log2(f.cols);
+
+	cout << "resizing (" << f.rows << "," << f.cols << ") to (" << rows << "," << cols << ")..." << endl;
+	copyMakeBorder(f.clone(), f, 0, rows-f.rows, 0, cols-f.cols, BORDER_CONSTANT);
+}
+
+/**
+ * Compare two images.
+ */
+int check(const Mat &a, const Mat &b, Size s, double eps = 1e-6)
+{
+	double err = norm(a(Rect(Point(0, 0), s)) - b(Rect(Point(0, 0), s)));
+
+	cout << "error: " << err << endl;
+
+	if( err > eps )
+		return 1;
+	else
+		return 0;
+}
+
+#define TIMER_INIT double T
+#define TIMER_START T = (double)getTickCount()
+#define TIMER_PRINT cout << "time: " << ((double)getTickCount() - T)/getTickFrequency() << " secs" << endl
+
+/**
+ * Simple image DWT.
+ * Size of outer frame should be power of two. Size of nested image should be smaller or equal to outer frame. Outer frame is padded with zeros. Coefficients with large aplitude appear on inner image edges. Slowest variant.
+ */
+void demo_simple(const Mat &src, int j = -1)
+{
+	Mat sqr = src.clone();
+
+	resize_pow2(sqr);
+	imshow("source", sqr/256);
+
+	TIMER_INIT;
+
+	TIMER_START;
+	for(int c=0; c<sqr.channels(); c++)
+		dwt_cdf97_2f(sqr.data+sqr.elemSize1()*c, sqr.step, sqr.elemSize(), sqr.size().width, sqr.size().height, sqr.size().width, sqr.size().height, &j, 0, 0);
+	TIMER_PRINT;
+	wtshow("transform", sqr);
+
+	TIMER_START;
+	for(int c=0; c<sqr.channels(); c++)
+		dwt_cdf97_2i(sqr.data+sqr.elemSize1()*c, sqr.step, sqr.elemSize(), sqr.size().width, sqr.size().height, sqr.size().width, sqr.size().height, j, 0, 0);
+	TIMER_PRINT;
+	imshow("reconstructed", sqr/256);
+
+	check(src, sqr, src.size());
+
+	waitKey();
+}
+
+/**
+ * Sparse image DWT.
+ * Size of outer frame should be power of two. Size of nested image should be smaller or equal to outer frame. Coefficients with large aplitude do not appear on inner image edges. Undefined values remain in unused image area.
+ */
+void demo_sparse(const Mat &src, int j = -1)
+{
+	Mat sqr = src.clone();
+
+	resize_pow2(sqr);
+	imshow("source", sqr/256);
+
+	TIMER_INIT;
+
+	TIMER_START;
+	for(int c=0; c<sqr.channels(); c++)
+		dwt_cdf97_2f(sqr.data+sqr.elemSize1()*c, sqr.step, sqr.elemSize(), sqr.size().width, sqr.size().height, src.size().width, src.size().height, &j, 0, 0);
+	TIMER_PRINT;
+	wtshow("transform", sqr);
+
+	TIMER_START;
+	for(int c=0; c<sqr.channels(); c++)
+		dwt_cdf97_2i(sqr.data+sqr.elemSize1()*c, sqr.step, sqr.elemSize(), sqr.size().width, sqr.size().height, src.size().width, src.size().height, j, 0, 0);
+	TIMER_PRINT;
+	imshow("reconstructed", sqr/256);
+
+	check(src, sqr, src.size());
+
+	waitKey();
+}
+
+/**
+ * Sparse image DWT with zero padding.
+ * Same as in previous case with except unused image area is filled with zeros. Slower than variant without zero padding.
+ */
+void demo_sparse_zeros(const Mat &src, int j = -1)
+{
+	Mat sqr = src.clone();
+
+	resize_pow2(sqr);
+	imshow("source", sqr/256);
+
+	TIMER_INIT;
+
+	TIMER_START;
+	for(int c=0; c<sqr.channels(); c++)
+		dwt_cdf97_2f(sqr.data+sqr.elemSize1()*c, sqr.step, sqr.elemSize(), sqr.size().width, sqr.size().height, src.size().width, src.size().height, &j, 0, 1);
+	TIMER_PRINT;
+	wtshow("transform", sqr);
+
+	TIMER_START;
+	for(int c=0; c<sqr.channels(); c++)
+		dwt_cdf97_2i(sqr.data+sqr.elemSize1()*c, sqr.step, sqr.elemSize(), sqr.size().width, sqr.size().height, src.size().width, src.size().height, j, 0, 1);
+	TIMER_PRINT;
+	imshow("reconstructed", sqr/256);
+
+	check(src, sqr, src.size());
+
+	waitKey();
+}
+
+/**
+ * Packed image DWT.
+ * Outer frame size is equal to inner image size. Inner image size can be of any size. Coefficients with large aplitude do not appear on inner image edges. Fastest variant.
+ */
+void demo_packed(const Mat &src, int j = -1)
+{
+	Mat sqr = src.clone();
+
+	imshow("source", sqr/256);
+
+	TIMER_INIT;
+
+	TIMER_START;
+	for(int c=0; c<sqr.channels(); c++)
+		dwt_cdf97_2f(sqr.data+sqr.elemSize1()*c, sqr.step, sqr.elemSize(), sqr.size().width, sqr.size().height, src.size().width, src.size().height, &j, 0, 0);
+	TIMER_PRINT;
+	wtshow("transform", sqr);
+
+	TIMER_START;
+	for(int c=0; c<sqr.channels(); c++)
+		dwt_cdf97_2i(sqr.data+sqr.elemSize1()*c, sqr.step, sqr.elemSize(), sqr.size().width, sqr.size().height, src.size().width, src.size().height, j, 0, 0);
+	TIMER_PRINT;
+	imshow("reconstructed", sqr/256);
+
+	check(src, sqr, src.size());
+
+	waitKey();
+}
+
+int main(int argc, char **argv)
+{
+	Mat f;
+
+	const char *imagename = argc > 1 ? argv[1] : "Lenna.png";
 	cout << "Loading " << imagename << endl;
 
-	 Mat_<double> f = Mat_<double>(imread(imagename, CV_LOAD_IMAGE_GRAYSCALE));
-	if(!f.data)
-		return -1;
+	imread(imagename,
+#ifdef WITH_COLOR
+		CV_LOAD_IMAGE_COLOR
+#else
+		CV_LOAD_IMAGE_GRAYSCALE
+#endif
+	).convertTo(f, CV_64F);
 
-	::resize(f);
-	imshow("in", Mat_<uchar>(f));
-	fwt(f);
-	show_dwt("dwt", f);
-	iwt(f);
-	imshow("out", Mat_<uchar>(f));
-	waitKey();
+	if(!f.data)
+	{
+		cerr << "Unable to load input image" << endl;
+		return -1;
+	}
+
+	demo_simple(f, 2);
+
+	demo_simple(f);
+
+	demo_sparse(f);
+
+	demo_sparse_zeros(f);
+
+	demo_packed(f);
 
 	return 0;
 }
