@@ -441,6 +441,7 @@ void dwt_cdf97_2f(
 		const int size_i_src_x = ceil_div_pow2(size_i_big_x, j  );
 		const int size_i_src_y = ceil_div_pow2(size_i_big_y, j  );
 
+		#pragma omp parallel for private(temp)
 		for(int y = 0; y < size_o_src_y; y++)
 			dwt_cdf97_f_ex_stride(
 				addr2(ptr,y,0,stride_x,stride_y),
@@ -449,6 +450,7 @@ void dwt_cdf97_2f(
 				temp,
 				size_i_src_x,
 				stride_y);
+		#pragma omp parallel for private(temp)
 		for(int x = 0; x < size_o_src_x; x++)
 			dwt_cdf97_f_ex_stride(
 				addr2(ptr,0,x,stride_x,stride_y),
@@ -519,6 +521,7 @@ void dwt_cdf97_2i(
 		const int size_i_dst_x = ceil_div_pow2(size_i_big_x, j-1);
 		const int size_i_dst_y = ceil_div_pow2(size_i_big_y, j-1);
 
+		#pragma omp parallel for private(temp)
 		for(int y = 0; y < size_o_dst_y; y++)
 			dwt_cdf97_i_ex_stride(
 				addr2(ptr,y,0,stride_x,stride_y),
@@ -527,6 +530,7 @@ void dwt_cdf97_2i(
 				temp,
 				size_i_dst_x,
 				stride_y);
+		#pragma omp parallel for private(temp)
 		for(int x = 0; x < size_o_dst_x; x++)
 			dwt_cdf97_i_ex_stride(
 				addr2(ptr,0,x,stride_x,stride_y),

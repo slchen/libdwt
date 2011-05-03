@@ -1,0 +1,9 @@
+* unit tests
+* SIMD support
+* more wavelets (CDF 5/3, Haar)
+* more data types (float, int)
+* performance measurement
+* more examples applications
+* more effective lifting implementation
+* better parallelization (threads)
+* support for full decomposition in 1D
