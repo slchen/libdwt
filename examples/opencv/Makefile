@@ -1,4 +1,6 @@
-CXXFLAGS=`pkg-config --cflags opencv` -std=c++98 -pedantic -Wall -Wextra -O2 -I../../src
+LIBPATH=../../src
+LIBNAME=libdwt
+CXXFLAGS=`pkg-config --cflags opencv` -std=c++98 -pedantic -Wall -Wextra -O2 -I$(LIBPATH)
 LDFLAGS=`pkg-config --libs opencv` -fopenmp
 BIN=showdwt
 
@@ -7,9 +9,15 @@ BIN=showdwt
 all: $(BIN)
 
 clean:
+	$(MAKE) -C $(LIBPATH) $@
 	-$(RM) *.o $(BIN)
 
-$(BIN): ../../src/libdwt.o $(BIN).o ../../src/libdwt.h
+# link application
+$(BIN): $(BIN).o $(LIBPATH)/$(LIBNAME).o
 
-../../src/libdwt.o:
-	$(MAKE) -C ../../src libdwt.o
+# compile application
+$(BIN).o: $(BIN).cpp $(LIBPATH)/$(LIBNAME).h
+
+# compile dependency
+$(LIBPATH)/$(LIBNAME).o: $(LIBPATH)/$(LIBNAME).c $(LIBPATH)/$(LIBNAME).h
+	$(MAKE) -C $(LIBPATH) $(LIBNAME).o

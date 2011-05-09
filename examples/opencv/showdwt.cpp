@@ -19,26 +19,6 @@ using namespace std;
 using namespace cv;
 
 /**
- * Fast integer math function. Returns 1<<(int)ceil(log2(x)).
- */
-static
-int pow2_ceil_log2(int x)
-{
-	assert(x > 0);
-
-	x = (x-1) << 1;
-
-	int y = 0;
-	while(x > 1)
-	{
-		x >>= 1;
-		y++;
-	}
-
-	return 1 << y;
-}
-
-/**
  * Shows DWT coefficients.
  */
 void wtshow(const char *name, Mat &f)
@@ -54,8 +34,8 @@ void wtshow(const char *name, Mat &f)
  */
 void resize_pow2(Mat &f)
 {
-	int rows = pow2_ceil_log2(f.rows);
-	int cols = pow2_ceil_log2(f.cols);
+	int rows = 1<<(int)ceil(log2(f.rows));
+	int cols = 1<<(int)ceil(log2(f.cols));
 
 	cout << "resizing (" << f.rows << "," << f.cols << ") to (" << rows << "," << cols << ")..." << endl;
 	copyMakeBorder(f.clone(), f, 0, rows-f.rows, 0, cols-f.cols, BORDER_CONSTANT);

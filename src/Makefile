@@ -1,16 +1,17 @@
+LIBNAME=libdwt
 CFLAGS=-std=c99 -pedantic -Wall -Wextra -O2 -fopenmp -fPIC
 
 .PHONY: all clean
 
-all: libdwt.o
+all: $(LIBNAME).o
 
 clean:
 	-$(RM) *.o *.a *.so
 
-libdwt.o: libdwt.c libdwt.h
+$(LIBNAME).o: $(LIBNAME).c $(LIBNAME).h
 
-libdwt.a: libdwt.o
+$(LIBNAME).a: $(LIBNAME).o
 	$(AR) -rsc $@ $^
 
-libdwt.so: libdwt.o
+$(LIBNAME).so: $(LIBNAME).o
 	$(CC) -shared -o $@ $^

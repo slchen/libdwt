@@ -8,9 +8,15 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <limits.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 /**
  * @{
+ * @brief CDF 9/7 lifting scheme constants
  * These constants are found in S. Mallat. A Wavelet Tour of Signal Processing: The Sparse Way (Third Edition). 3rd edition, 2009 on page 370.
  */
 static const double dwt_cdf97_p1 =    1.58613434342059;
@@ -22,11 +28,50 @@ static const double dwt_cdf97_s2  = 1/1.1496043988602;
 /**@}*/
 
 /**
+ * @brief Shift series
+ */
+static
+int or_shift(int shift, int x)
+{
+	x = shift>1 ? or_shift(shift>>1, x) : x;
+	return x | x >> shift;
+}
+
+/**
+ * @brief Power of two using greater or equal to x, i.e. 2^(ceil(log_2(x))
+ */
+static
+int pot(int x)
+{
+	assert(x > 0);
+
+	return or_shift(sizeof(int) * CHAR_BIT / 2, x - 1) + 1;
+}
+
+/**
+ * @brief Number of 1-bits in x, in parallel
+ */
+static
+int bits(int x)
+{
+	assert(sizeof(int) <= 4);
+
+	#define BREP(byte) ( (byte) | (byte) << 8 | (byte) << 16 | (byte) << 24 )
+	x -= x >> 1 & BREP(0x55);
+	x = (x & BREP(0x33)) + (x >> 2 & BREP(0x33));
+	x = (x + (x >> 4)) & BREP(0x0f);
+	return x * BREP(0x01) >> (sizeof(int) * CHAR_BIT - CHAR_BIT);
+	#undef BREP
+}
+
+/**
+ * @brief Smallest integer not less than the base 2 logarithm of x, i.e. ceil(log_2(x))
  * @returns (int)ceil(log2(x))
  */
 static
 int ceil_log2(int x)
 {
+#ifdef USE_SLOW_MATH
 	assert(x > 0);
 
 	x = (x-1) << 1;
@@ -38,6 +83,18 @@ int ceil_log2(int x)
 		y++;
 	}
 	return y;
+#else
+	return bits(pot(x) - 1);
+#endif
+}
+
+/**
+ * @returns (int)ceil(x/(double)y)
+ */
+static
+int ceil_div(int x, int y)
+{
+	return (x + y - 1) / y;
 }
 
 /**
@@ -50,7 +107,7 @@ int ceil_div_pow2(int i, int j)
 }
 
 /**
- * Minimum of two integers.
+ * @brief Minimum of two integers.
  */
 static
 int min(int a, int b)
@@ -59,7 +116,7 @@ int min(int a, int b)
 }
 
 /**
- * Maximum of two integers.
+ * @brief Maximum of two integers.
  */
 static
 int max(int a, int b)
@@ -170,50 +227,33 @@ void dwt_cdf97_f_ex_stride(
 	for(int i=0; i<N; i++)
 		tmp[i] = *addr1_const(src,i,stride);
 
+	// predict 1 + update 1
+	for(int i=1; i<N-2+(N&1); i+=2)
+		tmp[i] -= dwt_cdf97_p1 * (tmp[i-1] + tmp[i+1]);
+
 	if(N&1)
-	{
-		// predict 1
-		for(int i=1; i<N-1; i+=2)
-			tmp[i] -= dwt_cdf97_p1 * (tmp[i-1] + tmp[i+1]);
-	
-		// update 1
-		for(int i=2; i<N-1; i+=2)
-			tmp[i] += dwt_cdf97_u1 * (tmp[i-1] + tmp[i+1]);
-		tmp[0] += 2 * dwt_cdf97_u1 * tmp[1];
 		tmp[N-1] += 2 * dwt_cdf97_u1 * tmp[N-2];
-	
-		// predict 2
-		for(int i=1; i<N-1; i+=2)
-			tmp[i] -= dwt_cdf97_p2 * (tmp[i-1] + tmp[i+1]);
-	
-		// update 2
-		for(int i=2; i<N-1; i+=2)
-			tmp[i] += dwt_cdf97_u2 * (tmp[i-1] + tmp[i+1]);
-		tmp[0] += 2 * dwt_cdf97_u2 * tmp[1];
-		tmp[N-1] += 2 * dwt_cdf97_u2 * tmp[N-2];
-	}
 	else
-	{
-		// predict 1
-		for(int i=1; i<N-2; i+=2)
-			tmp[i] -= dwt_cdf97_p1 * (tmp[i-1] + tmp[i+1]);
-		tmp[N-1] -= 2 * dwt_cdf97_p1 * tmp[N-2];
-	
-		// update 1
-		for(int i=2; i<N; i+=2)
-			tmp[i] += dwt_cdf97_u1 * (tmp[i-1] + tmp[i+1]);
-		tmp[0] += 2 * dwt_cdf97_u1 * tmp[1];
-	
-		// predict 2
-		for(int i=1; i<N-2; i+=2)
-			tmp[i] -= dwt_cdf97_p2 * (tmp[i-1] + tmp[i+1]);
+		tmp[N-1] -= 2 * dwt_cdf97_p1 * tmp[N-2];;
+
+	tmp[0] += 2 * dwt_cdf97_u1 * tmp[1];
+
+	for(int i=2; i<N-(N&1); i+=2)
+		tmp[i] += dwt_cdf97_u1 * (tmp[i-1] + tmp[i+1]);
+
+	// predict 2 + update 2
+	for(int i=1; i<N-2+(N&1); i+=2)
+		tmp[i] -= dwt_cdf97_p2 * (tmp[i-1] + tmp[i+1]);
+
+	if(N&1)
+		tmp[N-1] += 2 * dwt_cdf97_u2 * tmp[N-2];
+	else
 		tmp[N-1] -= 2 * dwt_cdf97_p2 * tmp[N-2];
-	
-		// update 2
-		for(int i=2; i<N; i+=2)
-			tmp[i] += dwt_cdf97_u2 * (tmp[i-1] + tmp[i+1]);
-		tmp[0] += 2 * dwt_cdf97_u2 * tmp[1];
-	}
+
+	tmp[0] += 2 * dwt_cdf97_u2 * tmp[1];
+
+	for(int i=2; i<N-(N&1); i+=2)
+		tmp[i] += dwt_cdf97_u2 * (tmp[i-1] + tmp[i+1]);
 
 	// scale
 	for(int i=0; i<N; i+=2)
@@ -277,50 +317,33 @@ void dwt_cdf97_i_ex_stride(
 	for(int i=1; i<N; i+=2)
 		tmp[i] = tmp[i] * dwt_cdf97_s1;
 
+	// backward update 2 + backward predict 2
+	for(int i=2; i<N-(N&1); i+=2)
+		tmp[i] -= dwt_cdf97_u2 * (tmp[i-1] + tmp[i+1]);
+
+	tmp[0] -= 2 * dwt_cdf97_u2 * tmp[1];
+
 	if(N&1)
-	{
-		// backward update 2
-		for(int i=2; i<N-1; i+=2)
-			tmp[i] -= dwt_cdf97_u2 * (tmp[i-1] + tmp[i+1]);
-		tmp[0] -= 2 * dwt_cdf97_u2 * tmp[1];
 		tmp[N-1] -= 2 * dwt_cdf97_u2 * tmp[N-2];
-	
-		// backward predict 2
-		for(int i=1; i<N-1; i+=2)
-			tmp[i] += dwt_cdf97_p2 * (tmp[i-1] + tmp[i+1]);
-	
-		// backward update 1
-		for(int i=2; i<N-1; i+=2)
-			tmp[i] -= dwt_cdf97_u1 * (tmp[i-1] + tmp[i+1]);
-		tmp[0] -= 2 * dwt_cdf97_u1 * tmp[1];
-		tmp[N-1] -= 2 * dwt_cdf97_u1 * tmp[N-2];
-	
-		// backward predict 1
-		for(int i=1; i<N-1; i+=2)
-			tmp[i] += dwt_cdf97_p1 * (tmp[i-1] + tmp[i+1]);
-	}
 	else
-	{
-		// backward update 2
-		for(int i=2; i<N; i+=2)
-			tmp[i] -= dwt_cdf97_u2 * (tmp[i-1] + tmp[i+1]);
-		tmp[0] -= 2 * dwt_cdf97_u2 * tmp[1];
-	
-		// backward predict 2
-		for(int i=1; i<N-2; i+=2)
-			tmp[i] += dwt_cdf97_p2 * (tmp[i-1] + tmp[i+1]);
 		tmp[N-1] += 2 * dwt_cdf97_p2 * tmp[N-2];
-	
-		// backward update 1
-		for(int i=2; i<N; i+=2)
-			tmp[i] -= dwt_cdf97_u1 * (tmp[i-1] + tmp[i+1]);
-		tmp[0] -= 2 * dwt_cdf97_u1 * tmp[1];
-	
-		// backward predict 1
-		for(int i=1; i<N-2; i+=2)
-			tmp[i] += dwt_cdf97_p1 * (tmp[i-1] + tmp[i+1]);
+
+	for(int i=1; i<N-2+(N&1); i+=2)
+		tmp[i] += dwt_cdf97_p2 * (tmp[i-1] + tmp[i+1]);
+
+	// backward update 1 + backward predict 1
+	for(int i=2; i<N-(N&1); i+=2)
+		tmp[i] -= dwt_cdf97_u1 * (tmp[i-1] + tmp[i+1]);
+
+	tmp[0] -= 2 * dwt_cdf97_u1 * tmp[1];
+
+	if(N&1)
+		tmp[N-1] -= 2 * dwt_cdf97_u1 * tmp[N-2];
+	else
 		tmp[N-1] += 2 * dwt_cdf97_p1 * tmp[N-2];
-	}
+
+	for(int i=1; i<N-2+(N&1); i+=2)
+		tmp[i] += dwt_cdf97_p1 * (tmp[i-1] + tmp[i+1]);
 
 	// copy tmp into dst
 	for(int i=0; i<N; i++)
@@ -441,7 +464,7 @@ void dwt_cdf97_2f(
 		const int size_i_src_x = ceil_div_pow2(size_i_big_x, j  );
 		const int size_i_src_y = ceil_div_pow2(size_i_big_y, j  );
 
-		#pragma omp parallel for private(temp)
+		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
 		for(int y = 0; y < size_o_src_y; y++)
 			dwt_cdf97_f_ex_stride(
 				addr2(ptr,y,0,stride_x,stride_y),
@@ -450,7 +473,7 @@ void dwt_cdf97_2f(
 				temp,
 				size_i_src_x,
 				stride_y);
-		#pragma omp parallel for private(temp)
+		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
 		for(int x = 0; x < size_o_src_x; x++)
 			dwt_cdf97_f_ex_stride(
 				addr2(ptr,0,x,stride_x,stride_y),
@@ -462,6 +485,7 @@ void dwt_cdf97_2f(
 
 		if(zero_padding)
 		{
+			#pragma omp parallel for schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
 			for(int y = 0; y < size_o_src_y; y++)
 				dwt_zero_padding_f_stride(
 					addr2(ptr,y,0,stride_x,stride_y),
@@ -470,6 +494,7 @@ void dwt_cdf97_2f(
 					size_o_dst_x,
 					size_o_src_x-size_o_dst_x,
 					stride_y);
+			#pragma omp parallel for schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
 			for(int x = 0; x < size_o_src_x; x++)
 				dwt_zero_padding_f_stride(
 					addr2(ptr,0,x,stride_x,stride_y),
@@ -521,7 +546,7 @@ void dwt_cdf97_2i(
 		const int size_i_dst_x = ceil_div_pow2(size_i_big_x, j-1);
 		const int size_i_dst_y = ceil_div_pow2(size_i_big_y, j-1);
 
-		#pragma omp parallel for private(temp)
+		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
 		for(int y = 0; y < size_o_dst_y; y++)
 			dwt_cdf97_i_ex_stride(
 				addr2(ptr,y,0,stride_x,stride_y),
@@ -530,7 +555,7 @@ void dwt_cdf97_2i(
 				temp,
 				size_i_dst_x,
 				stride_y);
-		#pragma omp parallel for private(temp)
+		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
 		for(int x = 0; x < size_o_dst_x; x++)
 			dwt_cdf97_i_ex_stride(
 				addr2(ptr,0,x,stride_x,stride_y),
@@ -542,12 +567,14 @@ void dwt_cdf97_2i(
 
 		if(zero_padding)
 		{
+			#pragma omp parallel for schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
 			for(int y = 0; y < size_o_dst_y; y++)
 				dwt_zero_padding_i_stride(
 					addr2(ptr,y,0,stride_x,stride_y),
 					size_i_dst_x,
 					size_o_dst_x,
 					stride_y);
+			#pragma omp parallel for schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
 			for(int x = 0; x < size_o_dst_x; x++)
 				dwt_zero_padding_i_stride(
 					addr2(ptr,0,x,stride_x,stride_y),

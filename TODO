@@ -3,7 +3,8 @@
 * more wavelets (CDF 5/3, Haar)
 * more data types (float, int)
 * performance measurement
-* more examples applications
-* more effective lifting implementation
-* better parallelization (threads)
+* more example applications
+* more effective lifting implementation (take a look at another implementations, e.g. OpenJPEG or JasPer)
 * support for full decomposition in 1D
+* support for EdkDSP platform
+* relicense to GNU GPL
