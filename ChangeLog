@@ -1,8 +1,25 @@
+2011-05-16 David Barina <ibarina@fit.vutbr.cz>
+
+* libdwt.c libdwt.h (dwt_cdf97_f_d, dwt_cdf97_f_s, dwt_cdf97_i_d, dwt_cdf97_i_s)
+(dwt_cdf97_f_ex_d, dwt_cdf97_f_ex_s, dwt_cdf97_f_ex_stride_d)
+(dwt_cdf97_f_ex_stride_s, dwt_cdf97_i_ex_d, dwt_cdf97_i_ex_s)
+(dwt_cdf97_i_ex_stride_d, dwt_cdf97_i_ex_stride_s, dwt_zero_padding_f_d)
+(dwt_zero_padding_f_s, dwt_zero_padding_f_stride_d, dwt_zero_padding_f_stride_s)
+(dwt_zero_padding_i_d, dwt_zero_padding_i_s, dwt_zero_padding_i_stride_d)
+(dwt_zero_padding_i_stride_s, dwt_cdf97_2f_d, dwt_cdf97_2f_s, dwt_cdf97_2i_d)
+(dwt_cdf97_2i_s): Added support for single precision floating point numbers.
+
+* cvdwt.cpp cvdwt.h (isPOT, resizePOT, transform, wtshow): Added C++ OpenCV
+interface.
+
+* examples/opencv/showdwt.cpp: Now, using C++ OpenCV interface.
+
 2011-05-09 David Barina <ibarina@fit.vutbr.cz>
 
 * libdwt.c (dwt_cdf97_2f, dwt_cdf97_2i): More effective OpenMP parallelization.
 
-* libdwt.c (or_shift, pot, bits, ceil_log2, ceil_div): Added some fast integer math routines.
+* libdwt.c (or_shift, pot, bits, ceil_log2, ceil_div): Added some fast integer
+math routines.
 
 2011-05-03 David Barina <ibarina@fit.vutbr.cz>
 
@@ -10,4 +27,5 @@
 
 2011-04-21 David Barina <ibarina@fit.vutbr.cz>
 
-* libdwt.c libdwt.h (dwt_cdf97_2f, dwt_cdf97_2i): Added functions for image processing.
+* libdwt.c libdwt.h (dwt_cdf97_2f, dwt_cdf97_2i): Added functions for image
+processing.

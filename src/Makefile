@@ -15,3 +15,11 @@ $(LIBNAME).a: $(LIBNAME).o
 
 $(LIBNAME).so: $(LIBNAME).o
 	$(CC) -shared -o $@ $^
+
+LIBNAME_CV=cvdwt
+
+$(LIBNAME_CV).o: $(LIBNAME_CV).cpp $(LIBNAME_CV).h
+	$(CXX) `pkg-config --cflags opencv` -c -o $@ $<
+
+$(LIBNAME_CV).a: $(LIBNAME_CV).o
+	$(AR) -rsc $@ $^

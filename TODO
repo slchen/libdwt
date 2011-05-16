@@ -1,10 +1,13 @@
 * unit tests
 * SIMD support
 * more wavelets (CDF 5/3, Haar)
-* more data types (float, int)
+* more data types (int)
 * performance measurement
 * more example applications
 * more effective lifting implementation (take a look at another implementations, e.g. OpenJPEG or JasPer)
 * support for full decomposition in 1D
 * support for EdkDSP platform
 * relicense to GNU GPL
+* OpenCV wrapper (C)
+* drop deprecated interface
+* remove duplicate code
