@@ -6,12 +6,12 @@
 #ifndef CVDWT_H
 #define CVDWT_H
 
-#include <cv.h>
+#include <cv.h> // cv::
 
 #include "libdwt.h"
 
 /**
- * @defgroup cpp_ocv_interface C++ OpenCV interface
+ * @defgroup cpp_cvdwt C++ OpenCV interface
  * @{
  **/
 #ifdef __cplusplus
@@ -24,7 +24,7 @@ namespace dwt
 {
 
 /**
- * @brief Flags for @ref transform function.
+ * @brief Flags for @ref dwt::transform function.
  */
 enum
 {
@@ -140,6 +140,15 @@ int isPOT(
 void wtshow(
 	const string &winname,			///< name of the window
 	const cv::Mat &image			///< transform to be shown
+);
+
+/**
+ * @brief Create test image.
+ */
+void createTestImage(
+	cv::Mat &img,				///< place test image here
+	const cv::Size &size,			///< matrix size specification
+	int type				///< matrix element type, e.g. CV_64FC3
 );
 
 }

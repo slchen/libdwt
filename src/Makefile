@@ -1,7 +1,8 @@
+VERSION=`cat ../VERSION`
 LIBNAME=libdwt
-CFLAGS=-std=c99 -pedantic -Wall -Wextra -O2 -fopenmp -fPIC
+CFLAGS=-std=c99 -pedantic -Wall -Wextra -O2 -fopenmp -fPIC -DLIBDWT_VERSION="$(VERSION)"
 
-.PHONY: all clean
+.PHONY: all clean version
 
 all: $(LIBNAME).o
 
@@ -15,6 +16,9 @@ $(LIBNAME).a: $(LIBNAME).o
 
 $(LIBNAME).so: $(LIBNAME).o
 	$(CC) -shared -o $@ $^
+
+version:
+	echo $(VERSION)
 
 LIBNAME_CV=cvdwt
 

@@ -5,14 +5,95 @@
  */
 #include "libdwt.h"
 
-#include <assert.h>
-#include <stddef.h>
-#include <stdlib.h>
-#include <limits.h>
+#if !defined(P4A)
+	#define USE_TIME_CLOCK
+	#define USE_TIME_CLOCK_GETTIME
+	#define USE_TIME_TIMES
+	#define USE_TIME_GETRUSAGE
+#endif
+
+#if defined(_GNU_SOURCE) || defined(_ISOC99_SOURCE) || defined(_POSIX_C_SOURCE)
+	#define HAVE_TIME_CLOCK
+#endif
+
+#if _POSIX_C_SOURCE >= 199309L || _XOPEN_SOURCE >= 500
+	#define HAVE_TIME_CLOCK_GETTIME
+#endif
+
+#if defined(_GNU_SOURCE) || defined(_SVID_SOURCE) || defined(_BSD_SOURCE) || defined(_POSIX_C_SOURCE)
+	#define HAVE_TIME_TIMES
+#endif
+
+#if defined(_GNU_SOURCE) || defined(_SVID_SOURCE) || defined(_BSD_SOURCE) || defined(_POSIX_C_SOURCE)
+	#define HAVE_TIME_GETRUSAGE
+#endif
+
+#if defined(USE_TIME_CLOCK) && defined(HAVE_TIME_CLOCK)
+	#define ENABLE_TIME_CLOCK
+#endif
+
+#if defined(USE_TIME_CLOCK_GETTIME) && defined(HAVE_TIME_CLOCK_GETTIME)
+	#define ENABLE_TIME_CLOCK_GETTIME
+#endif
+
+#if defined(USE_TIME_TIMES) && defined(HAVE_TIME_TIMES)
+	#define ENABLE_TIME_TIMES
+#endif
+
+#if defined(USE_TIME_GETRUSAGE) && defined(HAVE_TIME_GETRUSAGE)
+	#define ENABLE_TIME_GETRUSAGE
+#endif
+
+#ifdef ENABLE_TIME_CLOCK_GETTIME
+	// FIXME: -lrt
+	#include <time.h>
+#endif
+
+#ifdef ENABLE_TIME_CLOCK
+	#include <time.h>
+#endif
+
+#ifdef ENABLE_TIME_TIMES
+	#include <sys/times.h>
+	#include <unistd.h>
+#endif
+
+#ifdef ENABLE_TIME_GETRUSAGE
+	#include <time.h>
+	#include <unistd.h>
+	#define __USE_GNU
+	#include <sys/resource.h>
+	#include <sys/time.h>
+#endif
+
+#include <assert.h> // assert
+#include <stddef.h> // NULL
+#include <stdlib.h> // abort, malloc, free
+#include <limits.h> // CHAR_BIT
+
+// FIXME: -lm
+#include <math.h> // sin, cos
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
+
+#define UNUSED(expr) do { (void)(expr); } while (0)
+
+#define LIBDWT_NAME libdwt
+
+#ifndef LIBDWT_VERSION
+	#error LIBDWT_VERSION is not defined
+#endif
+
+#define __Q(x) #x
+#define _Q(x) __Q(x)
+#define LIBDWT_VERSION_STRING _Q(LIBDWT_NAME) " " _Q(LIBDWT_VERSION)
+
+const char *dwt_util_version()
+{
+	return LIBDWT_VERSION_STRING;
+}
 
 /**
  * @{
@@ -35,40 +116,40 @@ static const float dwt_cdf97_s2_s =  1/1.1496043988602;
 /**@}*/
 
 /**
- * @brief Shift series
- */
-static
-int or_shift(int shift, int x)
-{
-	x = shift>1 ? or_shift(shift>>1, x) : x;
-	return x | x >> shift;
-}
-
-/**
  * @brief Power of two using greater or equal to x, i.e. 2^(ceil(log_2(x)).
  */
 static
-int pot(int x)
+int pow2_ceil_log2(
+	int x)
 {
 	assert(x > 0);
 
-	return or_shift(sizeof(int) * CHAR_BIT / 2, x - 1) + 1;
+	x--;
+
+	unsigned shift = 1;
+
+	while(shift < sizeof(int) * CHAR_BIT)
+	{
+		x |= x >> shift;
+		shift <<= 1;
+	}
+
+	x++;
+
+	return x;
 }
 
 /**
  * @brief Number of 1-bits in x, in parallel.
  */
 static
-int bits(int x)
+int bits(
+	unsigned x)
 {
-	assert(sizeof(int) <= 4);
-
-	#define BREP(byte) ( (byte) | (byte) << 8 | (byte) << 16 | (byte) << 24 )
-	x -= x >> 1 & BREP(0x55);
-	x = (x & BREP(0x33)) + (x >> 2 & BREP(0x33));
-	x = (x + (x >> 4)) & BREP(0x0f);
-	return x * BREP(0x01) >> (sizeof(int) * CHAR_BIT - CHAR_BIT);
-	#undef BREP
+	x -= x >> 1 & (unsigned)~(unsigned)0/3;
+	x = (x & (unsigned)~(unsigned)0/15*3) + (x >> 2 & (unsigned)~(unsigned)0/15*3);
+	x = (x + (x >> 4)) & (unsigned)~(unsigned)0/255*15;
+	return (x * ((unsigned)~(unsigned)0/255)) >> (sizeof(unsigned) - 1) * CHAR_BIT;
 }
 
 /**
@@ -76,16 +157,31 @@ int bits(int x)
  * @returns (int)ceil(log2(x))
  */
 static
-int ceil_log2(int x)
+int ceil_log2(
+	int x)
 {
-	return bits(pot(x) - 1);
+	return bits(pow2_ceil_log2(x) - 1);
+}
+
+int dwt_util_ceil_log2(
+	int x)
+{
+	return ceil_log2(x);
+}
+
+int dwt_util_pow2_ceil_log2(
+	int x)
+{
+	return pow2_ceil_log2(x);
 }
 
 /**
  * @returns (int)ceil(x/(double)y)
  */
 static
-int ceil_div(int x, int y)
+int ceil_div(
+	int x,
+	int y)
 {
 	return (x + y - 1) / y;
 }
@@ -94,7 +190,9 @@ int ceil_div(int x, int y)
  * @returns (int)ceil(i/(double)(1<<j))
  */
 static
-int ceil_div_pow2(int i, int j)
+int ceil_div_pow2(
+	int i,
+	int j)
 {
 	return (i + (1 << j) - 1) >> j;
 }
@@ -103,7 +201,9 @@ int ceil_div_pow2(int i, int j)
  * @brief Minimum of two integers.
  */
 static
-int min(int a, int b)
+int min(
+	int a,
+	int b)
 {
 	return a>b ? b : a;
 }
@@ -112,7 +212,9 @@ int min(int a, int b)
  * @brief Maximum of two integers.
  */
 static
-int max(int a, int b)
+int max(
+	int a,
+	int b)
 {
 	return a>b ? a : b;
 }
@@ -123,7 +225,10 @@ int max(int a, int b)
  * Evaluate address of (i) image element, returns (const double *).
  */
 static
-const double *addr1_const_d(const void *ptr, int i, int stride)
+const double *addr1_const_d(
+	const void *ptr,
+	int i,
+	int stride)
 {
 	return (const double *)((const char *)ptr+i*stride);
 }
@@ -134,7 +239,10 @@ const double *addr1_const_d(const void *ptr, int i, int stride)
  * Evaluate address of (i) image element, returns (const double *).
  */
 static
-const float *addr1_const_s(const void *ptr, int i, int stride)
+const float *addr1_const_s(
+	const void *ptr,
+	int i,
+	int stride)
 {
 	return (const float *)((const char *)ptr+i*stride);
 }
@@ -145,7 +253,10 @@ const float *addr1_const_s(const void *ptr, int i, int stride)
  * Evaluate address of (i) image element, returns (double *).
  */
 static
-double *addr1_d(void *ptr, int i, int stride)
+double *addr1_d(
+	void *ptr,
+	int i,
+	int stride)
 {
 	return (double *)((char *)ptr+i*stride);
 }
@@ -156,7 +267,10 @@ double *addr1_d(void *ptr, int i, int stride)
  * Evaluate address of (i) image element, returns (double *).
  */
 static
-float *addr1_s(void *ptr, int i, int stride)
+float *addr1_s(
+	void *ptr,
+	int i,
+	int stride)
 {
 	return (float *)((char *)ptr+i*stride);
 }
@@ -167,7 +281,12 @@ float *addr1_s(void *ptr, int i, int stride)
  * Evaluate address of (x,y) image element, returns (double *).
  */
 static
-double *addr2_d(void *ptr, int y, int x, int stride_x, int stride_y)
+double *addr2_d(
+	void *ptr,
+	int y,
+	int x,
+	int stride_x,
+	int stride_y)
 {
 	return (double *)((char *)ptr+y*stride_x+x*stride_y);
 }
@@ -178,35 +297,141 @@ double *addr2_d(void *ptr, int y, int x, int stride_x, int stride_y)
  * Evaluate address of (x,y) image element, returns (double *).
  */
 static
-float *addr2_s(void *ptr, int y, int x, int stride_x, int stride_y)
+float *addr2_s(
+	void *ptr,
+	int y,
+	int x,
+	int stride_x,
+	int stride_y)
 {
 	return (float *)((char *)ptr+y*stride_x+x*stride_y);
 }
 
-void dwt_cdf97_f(
-	const double *src,
-	double *dst,
-	double *tmp,
-	int N
-)
+/**
+ * @brief Pixel value of test image.
+ */
+static
+double dwt_util_test_image_value_d(
+	int x,
+	int y,
+	int rand)
 {
-	dwt_cdf97_f_ex(
-		src,
-		dst,
-		dst+N/2+(N&1),
-		tmp,
-		N
-	);
+	const int off_x = 256;
+	const int off_y = 256;
+
+	return ( sin(rand*(double)off_x/4 + x/(double)off_x*4) * cos(y/(double)off_y*4)
+		+ sin(x/(double)off_x*4) * cos(x/(double)off_x*4)
+		+ 1.5 ) / 3;
+}
+
+/**
+ * @brief Pixel value of test image.
+ */
+static
+float dwt_util_test_image_value_s(
+	int x,
+	int y,
+	int rand)
+{
+	const int off_x = 256;
+	const int off_y = 256;
+
+	return ( sinf(rand*(float)off_x/4 + x/(float)off_x*4) * cosf(y/(float)off_y*4)
+		+ sinf(x/(float)off_x*4) * cosf(x/(float)off_x*4)
+		+ 1.5f ) / 3;
+}
+
+void dwt_util_test_image_fill_d(
+	void *ptr,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y,
+	int rand)
+{
+	for(int y = 0; y < size_i_big_y; y++)
+		for(int x = 0; x < size_i_big_x; x++)
+			*addr2_d(ptr, y, x, stride_x, stride_y) = dwt_util_test_image_value_d(x, y, rand);
+}
+
+void dwt_util_test_image_fill_s(
+	void *ptr,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y,
+	int rand)
+{
+	for(int y = 0; y < size_i_big_y; y++)
+		for(int x = 0; x < size_i_big_x; x++)
+			*addr2_s(ptr, y, x, stride_x, stride_y) = dwt_util_test_image_value_s(x, y, rand);
+}
+
+void dwt_util_alloc_image(
+	void **pptr,
+	int stride_x,
+	int stride_y,
+	int size_o_big_x,
+	int size_o_big_y)
+{
+	UNUSED(stride_y);
+	UNUSED(size_o_big_x);
+
+	*pptr = malloc(stride_x*size_o_big_y);
+	if(NULL == *pptr)
+		abort();
+}
+
+void dwt_util_free_image(
+	void **pptr)
+{
+	free(*pptr);
+	*pptr = NULL;
+}
+
+int dwt_util_compare_d(
+	void *ptr1,
+	void *ptr2,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y)
+{
+	const double eps = 1e-6;
+
+	for(int y = 0; y < size_i_big_y; y++)
+		for(int x = 0; x < size_i_big_x; x++)
+			if( fabs(*addr2_d(ptr1,y,x,stride_x,stride_y) - *addr2_d(ptr2,y,x,stride_x,stride_y)) > eps )
+				return 1;
+
+	return 0;
+}
+
+int dwt_util_compare_s(
+	void *ptr1,
+	void *ptr2,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y)
+{
+	const float eps = 1e-3;
+
+	for(int y = 0; y < size_i_big_y; y++)
+		for(int x = 0; x < size_i_big_x; x++)
+			if( fabsf(*addr2_s(ptr1,y,x,stride_x,stride_y) - *addr2_s(ptr2,y,x,stride_x,stride_y)) > eps )
+				return 1;
+
+	return 0;
 }
 
 void dwt_cdf97_f_d(
 	const double *src,
 	double *dst,
 	double *tmp,
-	int N
-)
+	int N)
 {
-	dwt_cdf97_f_ex(
+	dwt_cdf97_f_ex_d(
 		src,
 		dst,
 		dst+N/2+(N&1),
@@ -219,8 +444,7 @@ void dwt_cdf97_f_s(
 	const float *src,
 	float *dst,
 	float *tmp,
-	int N
-)
+	int N)
 {
 	dwt_cdf97_f_ex_s(
 		src,
@@ -231,30 +455,13 @@ void dwt_cdf97_f_s(
 	);
 }
 
-void dwt_cdf97_i(
-	const double *src,
-	double *dst,
-	double *tmp,
-	int N
-)
-{
-	dwt_cdf97_i_ex(
-		src,
-		src+N/2+(N&1),
-		dst,
-		tmp,
-		N
-	);
-}
-
 void dwt_cdf97_i_d(
 	const double *src,
 	double *dst,
 	double *tmp,
-	int N
-)
+	int N)
 {
-	dwt_cdf97_i_ex(
+	dwt_cdf97_i_ex_d(
 		src,
 		src+N/2+(N&1),
 		dst,
@@ -267,8 +474,7 @@ void dwt_cdf97_i_s(
 	const float *src,
 	float *dst,
 	float *tmp,
-	int N
-)
+	int N)
 {
 	dwt_cdf97_i_ex_s(
 		src,
@@ -279,33 +485,14 @@ void dwt_cdf97_i_s(
 	);
 }
 
-void dwt_cdf97_f_ex(
-	const double *src,
-	double *dst_l,
-	double *dst_h,
-	double *tmp,
-	int N
-)
-{
-	dwt_cdf97_f_ex_stride(
-		src,
-		dst_l,
-		dst_h,
-		tmp,
-		N,
-		sizeof(double)
-	);
-}
-
 void dwt_cdf97_f_ex_d(
 	const double *src,
 	double *dst_l,
 	double *dst_h,
 	double *tmp,
-	int N
-)
+	int N)
 {
-	dwt_cdf97_f_ex_stride(
+	dwt_cdf97_f_ex_stride_d(
 		src,
 		dst_l,
 		dst_h,
@@ -320,8 +507,7 @@ void dwt_cdf97_f_ex_s(
 	float *dst_l,
 	float *dst_h,
 	float *tmp,
-	int N
-)
+	int N)
 {
 	dwt_cdf97_f_ex_stride_s(
 		src,
@@ -333,33 +519,13 @@ void dwt_cdf97_f_ex_s(
 	);
 }
 
-void dwt_cdf97_f_ex_stride(
-	const double *src,
-	double *dst_l,
-	double *dst_h,
-	double *tmp,
-	int N,
-	int stride
-)
-{
-	dwt_cdf97_f_ex_stride_d(
-		src,
-		dst_l,
-		dst_h,
-		tmp,
-		N,
-		stride
-	);
-}
-
 void dwt_cdf97_f_ex_stride_d(
 	const double *src,
 	double *dst_l,
 	double *dst_h,
 	double *tmp,
 	int N,
-	int stride
-)
+	int stride)
 {
 	assert(!( N < 0 || NULL == src || NULL == dst_l || NULL == dst_h || NULL == tmp || 0 == stride ));
 
@@ -422,8 +588,7 @@ void dwt_cdf97_f_ex_stride_s(
 	float *dst_h,
 	float *tmp,
 	int N,
-	int stride
-)
+	int stride)
 {
 	assert(!( N < 0 || NULL == src || NULL == dst_l || NULL == dst_h || NULL == tmp || 0 == stride ));
 
@@ -480,34 +645,14 @@ void dwt_cdf97_f_ex_stride_s(
 		*addr1_s(dst_h,i,stride) = tmp[2*i+1];
 }
 
-
-void dwt_cdf97_i_ex(
-	const double *src_l,
-	const double *src_h,
-	double *dst,
-	double *tmp,
-	int N
-)
-{
-	dwt_cdf97_i_ex_stride(
-		src_l,
-		src_h,
-		dst,
-		tmp,
-		N,
-		sizeof(double)
-	);
-}
-
 void dwt_cdf97_i_ex_d(
 	const double *src_l,
 	const double *src_h,
 	double *dst,
 	double *tmp,
-	int N
-)
+	int N)
 {
-	dwt_cdf97_i_ex_stride(
+	dwt_cdf97_i_ex_stride_d(
 		src_l,
 		src_h,
 		dst,
@@ -522,8 +667,7 @@ void dwt_cdf97_i_ex_s(
 	const float *src_h,
 	float *dst,
 	float *tmp,
-	int N
-)
+	int N)
 {
 	dwt_cdf97_i_ex_stride_s(
 		src_l,
@@ -535,33 +679,13 @@ void dwt_cdf97_i_ex_s(
 	);
 }
 
-void dwt_cdf97_i_ex_stride(
-	const double *src_l,
-	const double *src_h,
-	double *dst,
-	double *tmp,
-	int N,
-	int stride
-)
-{
-	dwt_cdf97_i_ex_stride_d(
-		src_l,
-		src_h,
-		dst,
-		tmp,
-		N,
-		stride
-	);
-}
-
 void dwt_cdf97_i_ex_stride_d(
 	const double *src_l,
 	const double *src_h,
 	double *dst,
 	double *tmp,
 	int N,
-	int stride
-)
+	int stride)
 {
 	assert(!( N < 0 || NULL == src_l || NULL == src_h || NULL == dst || NULL == tmp || 0 == stride ));
 
@@ -624,8 +748,7 @@ void dwt_cdf97_i_ex_stride_s(
 	float *dst,
 	float *tmp,
 	int N,
-	int stride
-)
+	int stride)
 {
 	assert(!( N < 0 || NULL == src_l || NULL == src_h || NULL == dst || NULL == tmp || 0 == stride ));
 
@@ -682,33 +805,14 @@ void dwt_cdf97_i_ex_stride_s(
 		*addr1_s(dst,i,stride) = tmp[i];
 }
 
-void dwt_zero_padding_f(
-	double *dst_l,
-	double *dst_h,
-	int N,
-	int N_dst_L,
-	int N_dst_H
-)
-{
-	dwt_zero_padding_f_stride(
-		dst_l,
-		dst_h,
-		N,
-		N_dst_L,
-		N_dst_H,
-		sizeof(double)
-	);
-}
-
 void dwt_zero_padding_f_d(
 	double *dst_l,
 	double *dst_h,
 	int N,
 	int N_dst_L,
-	int N_dst_H
-)
+	int N_dst_H)
 {
-	dwt_zero_padding_f_stride(
+	dwt_zero_padding_f_stride_d(
 		dst_l,
 		dst_h,
 		N,
@@ -723,8 +827,7 @@ void dwt_zero_padding_f_s(
 	float *dst_h,
 	int N,
 	int N_dst_L,
-	int N_dst_H
-)
+	int N_dst_H)
 {
 	dwt_zero_padding_f_stride_s(
 		dst_l,
@@ -736,33 +839,13 @@ void dwt_zero_padding_f_s(
 	);
 }
 
-void dwt_zero_padding_f_stride(
-	double *dst_l,
-	double *dst_h,
-	int N,
-	int N_dst_L,
-	int N_dst_H,
-	int stride
-)
-{
-	dwt_zero_padding_f_stride_d(
-		dst_l,
-		dst_h,
-		N,
-		N_dst_L,
-		N_dst_H,
-		stride
-	);
-}
-
 void dwt_zero_padding_f_stride_d(
 	double *dst_l,
 	double *dst_h,
 	int N,
 	int N_dst_L,
 	int N_dst_H,
-	int stride
-)
+	int stride)
 {
 	assert(!( N < 0 || N_dst_L < 0 || N_dst_H < 0 || 0 != ((N_dst_L-N_dst_H)&~1) || NULL == dst_l || NULL == dst_h || 0 == stride ));
 
@@ -782,8 +865,7 @@ void dwt_zero_padding_f_stride_s(
 	int N,
 	int N_dst_L,
 	int N_dst_H,
-	int stride
-)
+	int stride)
 {
 	assert(!( N < 0 || N_dst_L < 0 || N_dst_H < 0 || 0 != ((N_dst_L-N_dst_H)&~1) || NULL == dst_l || NULL == dst_h || 0 == stride ));
 
@@ -797,26 +879,12 @@ void dwt_zero_padding_f_stride_s(
 	}
 }
 
-void dwt_zero_padding_i(
-	double *dst_l,
-	int N,
-	int N_dst
-)
-{
-	dwt_zero_padding_i_d(
-		dst_l,
-		N,
-		N_dst
-	);
-}
-
 void dwt_zero_padding_i_d(
 	double *dst_l,
 	int N,
-	int N_dst
-)
+	int N_dst)
 {
-	dwt_zero_padding_i_stride(
+	dwt_zero_padding_i_stride_d(
 		dst_l,
 		N,
 		N_dst,
@@ -827,8 +895,7 @@ void dwt_zero_padding_i_d(
 void dwt_zero_padding_i_s(
 	float *dst_l,
 	int N,
-	int N_dst
-)
+	int N_dst)
 {
 	dwt_zero_padding_i_stride_s(
 		dst_l,
@@ -838,27 +905,11 @@ void dwt_zero_padding_i_s(
 	);
 }
 
-void dwt_zero_padding_i_stride(
-	double *dst_l,
-	int N,
-	int N_dst,
-	int stride
-)
-{
-	dwt_zero_padding_i_stride_d(
-		dst_l,
-		N,
-		N_dst,
-		stride
-	);
-}
-
 void dwt_zero_padding_i_stride_d(
 	double *dst_l,
 	int N,
 	int N_dst,
-	int stride
-)
+	int stride)
 {
 	assert(!( N < 0 || N_dst < 0 || NULL == dst_l || 0 == stride ));
 
@@ -870,40 +921,12 @@ void dwt_zero_padding_i_stride_s(
 	float *dst_l,
 	int N,
 	int N_dst,
-	int stride
-)
+	int stride)
 {
 	assert(!( N < 0 || N_dst < 0 || NULL == dst_l || 0 == stride ));
 
 	for(int i=N; i<N_dst; i++)
 		*addr1_s(dst_l,i,stride) = 0;
-}
-
-void dwt_cdf97_2f(
-	void *ptr,
-	int stride_x,
-	int stride_y,
-	int size_o_big_x,
-	int size_o_big_y,
-	int size_i_big_x,
-	int size_i_big_y,
-	int *j_max_ptr,
-	int decompose_one,
-	int zero_padding
-)
-{
-	dwt_cdf97_2f_d(
-		ptr,
-		stride_x,
-		stride_y,
-		size_o_big_x,
-		size_o_big_y,
-		size_i_big_x,
-		size_i_big_y,
-		j_max_ptr,
-		decompose_one,
-		zero_padding
-	);
 }
 
 void dwt_cdf97_2f_d(
@@ -916,8 +939,7 @@ void dwt_cdf97_2f_d(
 	int size_i_big_y,
 	int *j_max_ptr,
 	int decompose_one,
-	int zero_padding
-)
+	int zero_padding)
 {
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
@@ -947,7 +969,7 @@ void dwt_cdf97_2f_d(
 
 		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
 		for(int y = 0; y < size_o_src_y; y++)
-			dwt_cdf97_f_ex_stride(
+			dwt_cdf97_f_ex_stride_d(
 				addr2_d(ptr,y,0,stride_x,stride_y),
 				addr2_d(ptr,y,0,stride_x,stride_y),
 				addr2_d(ptr,y,size_o_dst_x,stride_x,stride_y),
@@ -956,7 +978,7 @@ void dwt_cdf97_2f_d(
 				stride_y);
 		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
 		for(int x = 0; x < size_o_src_x; x++)
-			dwt_cdf97_f_ex_stride(
+			dwt_cdf97_f_ex_stride_d(
 				addr2_d(ptr,0,x,stride_x,stride_y),
 				addr2_d(ptr,0,x,stride_x,stride_y),
 				addr2_d(ptr,size_o_dst_y,x,stride_x,stride_y),
@@ -968,7 +990,7 @@ void dwt_cdf97_2f_d(
 		{
 			#pragma omp parallel for schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
 			for(int y = 0; y < size_o_src_y; y++)
-				dwt_zero_padding_f_stride(
+				dwt_zero_padding_f_stride_d(
 					addr2_d(ptr,y,0,stride_x,stride_y),
 					addr2_d(ptr,y,size_o_dst_x,stride_x,stride_y),
 					size_i_src_x,
@@ -977,7 +999,7 @@ void dwt_cdf97_2f_d(
 					stride_y);
 			#pragma omp parallel for schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
 			for(int x = 0; x < size_o_src_x; x++)
-				dwt_zero_padding_f_stride(
+				dwt_zero_padding_f_stride_d(
 					addr2_d(ptr,0,x,stride_x,stride_y),
 					addr2_d(ptr,size_o_dst_y,x,stride_x,stride_y),
 					size_i_src_y,
@@ -1000,8 +1022,7 @@ void dwt_cdf97_2f_s(
 	int size_i_big_y,
 	int *j_max_ptr,
 	int decompose_one,
-	int zero_padding
-)
+	int zero_padding)
 {
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
@@ -1074,33 +1095,6 @@ void dwt_cdf97_2f_s(
 	}
 }
 
-void dwt_cdf97_2i(
-	void *ptr,
-	int stride_x,
-	int stride_y,
-	int size_o_big_x,
-	int size_o_big_y,
-	int size_i_big_x,
-	int size_i_big_y,
-	int j_max,
-	int decompose_one,
-	int zero_padding
-)
-{
-	dwt_cdf97_2i_d(
-		ptr,
-		stride_x,
-		stride_y,
-		size_o_big_x,
-		size_o_big_y,
-		size_i_big_x,
-		size_i_big_y,
-		j_max,
-		decompose_one,
-		zero_padding
-	);
-}
-
 void dwt_cdf97_2i_d(
 	void *ptr,
 	int stride_x,
@@ -1111,8 +1105,7 @@ void dwt_cdf97_2i_d(
 	int size_i_big_y,
 	int j_max,
 	int decompose_one,
-	int zero_padding
-)
+	int zero_padding)
 {
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
@@ -1140,7 +1133,7 @@ void dwt_cdf97_2i_d(
 
 		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
 		for(int y = 0; y < size_o_dst_y; y++)
-			dwt_cdf97_i_ex_stride(
+			dwt_cdf97_i_ex_stride_d(
 				addr2_d(ptr,y,0,stride_x,stride_y),
 				addr2_d(ptr,y,size_o_src_x,stride_x,stride_y),
 				addr2_d(ptr,y,0,stride_x,stride_y),
@@ -1149,7 +1142,7 @@ void dwt_cdf97_2i_d(
 				stride_y);
 		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
 		for(int x = 0; x < size_o_dst_x; x++)
-			dwt_cdf97_i_ex_stride(
+			dwt_cdf97_i_ex_stride_d(
 				addr2_d(ptr,0,x,stride_x,stride_y),
 				addr2_d(ptr,size_o_src_y,x,stride_x,stride_y),
 				addr2_d(ptr,0,x,stride_x,stride_y),
@@ -1161,14 +1154,14 @@ void dwt_cdf97_2i_d(
 		{
 			#pragma omp parallel for schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
 			for(int y = 0; y < size_o_dst_y; y++)
-				dwt_zero_padding_i_stride(
+				dwt_zero_padding_i_stride_d(
 					addr2_d(ptr,y,0,stride_x,stride_y),
 					size_i_dst_x,
 					size_o_dst_x,
 					stride_y);
 			#pragma omp parallel for schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
 			for(int x = 0; x < size_o_dst_x; x++)
-				dwt_zero_padding_i_stride(
+				dwt_zero_padding_i_stride_d(
 					addr2_d(ptr,0,x,stride_x,stride_y),
 					size_i_dst_y,
 					size_o_dst_y,
@@ -1189,8 +1182,7 @@ void dwt_cdf97_2i_s(
 	int size_i_big_y,
 	int j_max,
 	int decompose_one,
-	int zero_padding
-)
+	int zero_padding)
 {
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
@@ -1255,4 +1247,187 @@ void dwt_cdf97_2i_s(
 
 		j--;
 	}
+}
+
+int dwt_util_clock_autoselect()
+{
+#ifdef ENABLE_TIME_CLOCK_GETTIME
+	return DWT_TIME_CLOCK_GETTIME;
+#endif
+#ifdef ENABLE_TIME_TIMES
+	return DWT_TIME_TIMES;
+#endif
+#ifdef ENABLE_TIME_CLOCK
+	return DWT_TIME_CLOCK;
+#endif
+#ifdef ENABLE_TIME_GETRUSAGE
+	return DWT_TIME_GETRUSAGE;
+#endif
+	// fallback
+	return DWT_TIME_AUTOSELECT;
+}
+
+dwt_clock_t dwt_util_get_frequency(
+	int type)
+{
+	if(DWT_TIME_AUTOSELECT == type)
+		type = dwt_util_clock_autoselect();
+
+	dwt_clock_t return_freq;
+
+	switch(type)
+	{
+		case DWT_TIME_CLOCK_GETTIME:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME
+			return_freq = (dwt_clock_t)1000000000L;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK:
+		{
+#ifdef ENABLE_TIME_CLOCK
+			return_freq = (dwt_clock_t)CLOCKS_PER_SEC;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_TIMES:
+		{
+#ifdef ENABLE_TIME_TIMES
+			long ticks_per_sec = sysconf(_SC_CLK_TCK);
+
+			return_freq = (dwt_clock_t)ticks_per_sec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE
+			return_freq = (dwt_clock_t)1000000000L;
+#else
+			abort();
+#endif
+		}
+		break;
+		default:
+			abort();
+	}
+
+	return return_freq;
+}
+
+dwt_clock_t dwt_util_get_clock(
+	int type)
+{
+	if(DWT_TIME_AUTOSELECT == type)
+		type = dwt_util_clock_autoselect();
+
+	dwt_clock_t return_time;
+
+	switch(type)
+	{
+		case DWT_TIME_CLOCK_GETTIME:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME
+			clockid_t clk_id = /*CLOCK_THREAD_CPUTIME_ID*/ /*CLOCK_PROCESS_CPUTIME_ID*/ CLOCK_REALTIME; // FIXME
+
+			long time;
+
+			struct timespec ts;
+
+			if(clock_gettime(clk_id, &ts))
+				abort();
+
+			time = (ts.tv_sec) * 1000000000L + (ts.tv_nsec);
+
+			return_time = (dwt_clock_t)time;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK:
+		{
+#ifdef ENABLE_TIME_CLOCK
+			clock_t time;
+
+			time = clock();
+
+			return_time = (dwt_clock_t)time;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_TIMES:
+		{
+#ifdef ENABLE_TIME_TIMES
+			clock_t time;
+
+			struct tms tms_i;
+
+			if( (clock_t)-1 == times(&tms_i) )
+				abort();
+			time = tms_i.tms_utime;
+
+			return_time = (dwt_clock_t)time;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE
+			int who = /*RUSAGE_SELF*/ RUSAGE_THREAD; // FIXME
+
+			long time;
+
+			struct timeval tv;
+			struct rusage rusage_i;
+			struct timespec ts;
+
+			if( -1 == getrusage(who, &rusage_i) )
+				abort();
+			tv = rusage_i.ru_utime;
+			TIMEVAL_TO_TIMESPEC(&tv, &ts);
+
+			time = (ts.tv_sec) * 1000000000L + (ts.tv_nsec);
+
+			return_time = (dwt_clock_t)time;
+#else
+			abort();
+#endif
+		}
+		break;
+		default:
+			abort();
+	}
+
+	return return_time;
+}
+
+int dwt_util_get_max_threads()
+{
+#ifdef _OPENMP
+		return omp_get_max_threads();
+#else
+	return 1;
+#endif
+}
+
+void dwt_util_set_num_threads(
+	int num_threads)
+{
+#ifdef _OPENMP
+	omp_set_num_threads(num_threads);
+#else
+	UNUSED(num_threads);
+#endif
 }

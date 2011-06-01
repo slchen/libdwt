@@ -1,3 +1,7 @@
+2011-06-01 David Barina <ibarina@fit.vutbr.cz>
+
+* libdwt.c libdwt.h: Added dwt_util_* functions for performance measurement.
+
 2011-05-16 David Barina <ibarina@fit.vutbr.cz>
 
 * libdwt.c libdwt.h (dwt_cdf97_f_d, dwt_cdf97_f_s, dwt_cdf97_i_d, dwt_cdf97_i_s)

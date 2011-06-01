@@ -7,7 +7,10 @@
 * more effective lifting implementation (take a look at another implementations, e.g. OpenJPEG or JasPer)
 * support for full decomposition in 1D
 * support for EdkDSP platform
-* relicense to GNU GPL
+* relicense to GNU LGPL
 * OpenCV wrapper (C)
+* C++ interface
 * drop deprecated interface
 * remove duplicate code
+* try Par4All
+* tiling (e.g., as in JPEG 2000)

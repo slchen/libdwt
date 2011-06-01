@@ -26,7 +26,7 @@ using namespace dwt;
 #define TIMER_INIT double T
 #define TIMER_START T = (double)getTickCount()
 #define TIMER_PRINT cout << "time: " << ((double)getTickCount() - T)/getTickFrequency() << " secs" << endl
-#define COMPARE(a,b,s) cout << "error: " << norm(a(Rect(Point(0, 0), s)) - b(Rect(Point(0, 0), s))) << endl;
+#define COMPARE(a,b,s) cout << "error: " << norm(a(Rect(Point(0, 0), s)) - b(Rect(Point(0, 0), s))) << endl
 
 /**
  * Discrete wavelet transform demo.
@@ -81,8 +81,25 @@ int main(int argc, char **argv)
 
 	if(!f.data)
 	{
-		cerr << "Unable to load input image" << endl;
-		return -1;
+		cerr << "Unable to load input image, using test image" << endl;
+
+		createTestImage(
+			f,
+			Size(512, 512),
+#ifdef USE_DOUBLE
+	#ifdef WITH_COLOR
+			CV_64FC3
+	#else
+			CV_64FC1
+	#endif
+#else
+	#ifdef WITH_COLOR
+			CV_32FC3
+	#else
+			CV_32FC1
+	#endif
+#endif
+		);
 	}
 
 	demo(f, DWT_SIMPLE, 2);

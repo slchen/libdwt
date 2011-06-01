@@ -1,6 +1,10 @@
+/**
+ * @file
+ * @author David Barina <ibarina@fit.vutbr.cz>
+ * @brief OpenCV interface to libdwt.
+ */
 #include "cvdwt.h"
 
-#include <cmath> // ceil log2; FIXME: -lm
 #include <highgui.h> // imshow
 
 using namespace cv;
@@ -10,8 +14,8 @@ void dwt::resizePOT(
 	Mat &img,
 	int borderType)
 {
-	const int rows = 1<<(int)ceil(log2(img.rows)); // FIXME: faster implementation
-	const int cols = 1<<(int)ceil(log2(img.cols)); // FIXME: faster implementation
+	const int rows = dwt_util_pow2_ceil_log2(img.rows);
+	const int cols = dwt_util_pow2_ceil_log2(img.cols);
 
 	copyMakeBorder(img.clone(), img, 0, rows-img.rows, 0, cols-img.cols, borderType);
 }
@@ -21,8 +25,8 @@ void dwt::resizePOT(
 	Mat &dst,
 	int borderType)
 {
-	const int rows = 1<<(int)ceil(log2(src.rows)); // FIXME: faster implementation
-	const int cols = 1<<(int)ceil(log2(src.cols)); // FIXME: faster implementation
+	const int rows = dwt_util_pow2_ceil_log2(src.rows);
+	const int cols = dwt_util_pow2_ceil_log2(src.cols);
 
 	copyMakeBorder(src, dst, 0, rows-src.rows, 0, cols-src.cols, borderType);
 }
@@ -30,8 +34,8 @@ void dwt::resizePOT(
 int dwt::isPOT(
 	const Mat &img)
 {
-	const int rows = 1<<(int)ceil(log2(img.rows)); // FIXME: faster implementation
-	const int cols = 1<<(int)ceil(log2(img.cols)); // FIXME: faster implementation
+	const int rows = dwt_util_pow2_ceil_log2(img.rows);
+	const int cols = dwt_util_pow2_ceil_log2(img.cols);
 
 	return (img.rows == rows) && (img.cols == cols);
 }
@@ -51,13 +55,20 @@ void dwt::wtshow(
 }
 
 static
-int is_set(int word, int flag)
+int is_set(
+	int word,
+	int flag)
 {
 	return word&flag ? 1 : 0;
 }
 
 static
-void cv_dwt_cdf97_2f(Mat &img, const int &channel, const Size &size, int &j, const int &flags)
+void cv_dwt_cdf97_2f(
+	Mat &img,
+	const int &channel,
+	const Size &size,
+	int &j,
+	const int &flags)
 {
 	switch(img.depth())
 	{
@@ -93,7 +104,12 @@ void cv_dwt_cdf97_2f(Mat &img, const int &channel, const Size &size, int &j, con
 }
 
 static
-void cv_dwt_cdf97_2i(Mat &img, const int &channel, const Size &size, const int &j, const int &flags)
+void cv_dwt_cdf97_2i(
+	Mat &img,
+	const int &channel,
+	const Size &size,
+	const int &j,
+	const int &flags)
 {
 	switch(img.depth())
 	{
@@ -179,4 +195,49 @@ void dwt::transform(
 		size,
 		j,
 		flags);
+}
+
+static
+void dwt_util_test_image_fill(
+	Mat &img,
+	const int &channel,
+	const Size &size)
+{
+	switch(img.depth())
+	{
+		case CV_64F:
+			dwt_util_test_image_fill_d(
+				img.data+img.elemSize1()*channel,
+				img.step,
+				img.elemSize(),
+				size.width,
+				size.height,
+				channel);
+			break;
+		case CV_32F:
+			dwt_util_test_image_fill_s(
+				img.data+img.elemSize1()*channel,
+				img.step,
+				img.elemSize(),
+				size.width,
+				size.height,
+				channel);
+			break;	
+		default:
+			CV_Error(CV_StsOutOfRange, "The matrix element depth value is out of range.");
+	}
+}
+
+void dwt::createTestImage(
+	Mat &img,
+	const Size &size,
+	int type)
+{
+	img.create(size, type);
+
+	for(int c = 0; c < img.channels(); c++)
+		dwt_util_test_image_fill(
+			img,
+			c,
+			img.size());
 }
