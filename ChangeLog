@@ -1,3 +1,9 @@
+2011-06-07 David Barina <ibarina@fit.vutbr.cz>
+
+* libdwt.h: Fixed usage of string class.
+
+* examples/simple: Added simple example application.
+
 2011-06-01 David Barina <ibarina@fit.vutbr.cz>
 
 * libdwt.c libdwt.h: Added dwt_util_* functions for performance measurement.

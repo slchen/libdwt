@@ -7,6 +7,7 @@
 #define CVDWT_H
 
 #include <cv.h> // cv::
+#include <string> // std::string
 
 #include "libdwt.h"
 
@@ -138,7 +139,7 @@ int isPOT(
  * This function is similar to cv::imshow from OpenCV.
  */
 void wtshow(
-	const string &winname,			///< name of the window
+	const std::string &winname,		///< name of the window
 	const cv::Mat &image			///< transform to be shown
 );
 
