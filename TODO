@@ -12,5 +12,6 @@
 * C++ interface
 * drop deprecated interface
 * remove duplicate code
-* try Par4All
+* use Par4All tool
 * tiling (e.g., as in JPEG 2000)
+* remove "lib" prefix pro source file names

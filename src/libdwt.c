@@ -5,6 +5,27 @@
  */
 #include "libdwt.h"
 
+#ifdef microblaze
+	#include <wal.h>
+	#include <wal_bce_jk.h>
+	#include <bce_fp01_1x1_plbw.h>
+
+	WAL_REGISTER_WORKER(worker, BCE_JK_FP32M24, BCE_FP01_1X1_PLBW_ConfigTable, 0, 1, 0);
+
+	#include "firmware/fw_fp01_eval_op.h"
+
+	/**
+	 * Size of each EdkDSP memory bank is 256 floats
+	 */
+	#define EDKDSP_BANK_SIZE_S 256
+#endif
+
+#ifdef microblaze
+	#define BANK_SIZE_S EDKDSP_BANK_SIZE_S
+#else
+	#define BANK_SIZE_S 4096
+#endif
+
 #if !defined(P4A)
 	#define USE_TIME_CLOCK
 	#define USE_TIME_CLOCK_GETTIME
@@ -45,8 +66,7 @@
 #endif
 
 #ifdef ENABLE_TIME_CLOCK_GETTIME
-	// FIXME: -lrt
-	#include <time.h>
+	#include <time.h> // FIXME: -lrt
 #endif
 
 #ifdef ENABLE_TIME_CLOCK
@@ -61,7 +81,6 @@
 #ifdef ENABLE_TIME_GETRUSAGE
 	#include <time.h>
 	#include <unistd.h>
-	#define __USE_GNU
 	#include <sys/resource.h>
 	#include <sys/time.h>
 #endif
@@ -70,12 +89,11 @@
 #include <stddef.h> // NULL
 #include <stdlib.h> // abort, malloc, free
 #include <limits.h> // CHAR_BIT
-
-// FIXME: -lm
-#include <math.h> // sin, cos
+#include <math.h> // fabs, fabsf, isnan, isinf, FIXME: -lm
+#include <stdio.h> // FILE, fopen, fprintf, fclose
 
 #ifdef _OPENMP
-#include <omp.h>
+	#include <omp.h>
 #endif
 
 #define UNUSED(expr) do { (void)(expr); } while (0)
@@ -94,6 +112,12 @@ const char *dwt_util_version()
 {
 	return LIBDWT_VERSION_STRING;
 }
+
+/**
+ * @brief Global variable indicating used acceleration type.
+ * @note Array of size of 2 is workaround due to GCC 3.4.1 bug.
+ */
+int dwt_util_global_accel_type[2] = {0};
 
 /**
  * @{
@@ -316,12 +340,8 @@ double dwt_util_test_image_value_d(
 	int y,
 	int rand)
 {
-	const int off_x = 256;
-	const int off_y = 256;
-
-	return ( sin(rand*(double)off_x/4 + x/(double)off_x*4) * cos(y/(double)off_y*4)
-		+ sin(x/(double)off_x*4) * cos(x/(double)off_x*4)
-		+ 1.5 ) / 3;
+	x >>= rand;
+	return 2*x*y / (double)(x*x + y*y + 1);
 }
 
 /**
@@ -333,12 +353,8 @@ float dwt_util_test_image_value_s(
 	int y,
 	int rand)
 {
-	const int off_x = 256;
-	const int off_y = 256;
-
-	return ( sinf(rand*(float)off_x/4 + x/(float)off_x*4) * cosf(y/(float)off_y*4)
-		+ sinf(x/(float)off_x*4) * cosf(x/(float)off_x*4)
-		+ 1.5f ) / 3;
+	x >>= rand;
+	return 2*x*y / (float)(x*x + y*y + 1);
 }
 
 void dwt_util_test_image_fill_d(
@@ -401,8 +417,16 @@ int dwt_util_compare_d(
 
 	for(int y = 0; y < size_i_big_y; y++)
 		for(int x = 0; x < size_i_big_x; x++)
-			if( fabs(*addr2_d(ptr1,y,x,stride_x,stride_y) - *addr2_d(ptr2,y,x,stride_x,stride_y)) > eps )
+		{
+			const double a = *addr2_d(ptr1, y, x, stride_x, stride_y);
+			const double b = *addr2_d(ptr2, y, x, stride_x, stride_y);
+
+			if( isnan(a) || isinf(a) || isnan(b) || isinf(b) )
 				return 1;
+
+			if( fabs(a - b) > eps )
+				return 1;
+		}
 
 	return 0;
 }
@@ -419,8 +443,16 @@ int dwt_util_compare_s(
 
 	for(int y = 0; y < size_i_big_y; y++)
 		for(int x = 0; x < size_i_big_x; x++)
-			if( fabsf(*addr2_s(ptr1,y,x,stride_x,stride_y) - *addr2_s(ptr2,y,x,stride_x,stride_y)) > eps )
+		{
+			const float a = *addr2_s(ptr1, y, x, stride_x, stride_y);
+			const float b = *addr2_s(ptr2, y, x, stride_x, stride_y);
+
+			if( isnan(a) || isinf(a) || isnan(b) || isinf(b) )
 				return 1;
+
+			if( fabsf(a - b) > eps )
+				return 1;
+		}
 
 	return 0;
 }
@@ -582,6 +614,154 @@ void dwt_cdf97_f_ex_stride_d(
 		*addr1_d(dst_h,i,stride) = tmp[2*i+1];
 }
 
+#ifdef microblaze
+/**
+ * Start worker operation in UTIA EdkDSP platform.
+ */
+static
+int wal_bce_op(
+	wal_worker_t *wrk,
+	unsigned int pbid,	///< WAL_PBID_P0
+	unsigned int op,	///< DFU operation
+	unsigned int a,		///< offset of first element in A
+	unsigned int as,	///< restart address for A
+	unsigned int b,		///< offset of first element in B
+	unsigned int bs,	///< restart address for B
+	unsigned int z,		///< offset of first element in Z
+	unsigned int zs,	///< restart address for Z
+	unsigned int ah,	///< bank of A
+	unsigned int bh,	///< bank of B
+	unsigned int zh,	///< bank of Z
+	unsigned int inca,	///< increment for A
+	unsigned int incb,	///< increment for B
+	unsigned int incz,	///< increment for Z
+	unsigned int nn		///< length of input data vectors
+)
+{
+	wal_bce_jk_create_operation(wrk, pbid, op, a, as, b, bs, z, zs, ah, bh, zh, inca, incb, incz, nn);
+	wal_bce_jk_sync_operation(wrk);
+
+	return WAL_RES_OK;
+}
+#endif
+
+#ifdef microblaze
+
+#ifdef NDEBUG
+	#define WAL_CHECK(expr) (expr)
+#else
+	#define WAL_CHECK(expr) ( (expr) ? abort() : (void)0 )
+#endif
+
+#define WAL_BANK_POS_S(bank, off) ( (bank)*EDKDSP_BANK_SIZE_S + (off) )
+
+#endif
+
+#if 0
+static
+void print_arr_s(
+	float *arr,	///< beginning of outer array element
+	int len		///< length of outer array
+	)
+{
+	printf("[ ");
+	for(int i = 0; i < len; i++)
+		printf("%f ", arr[i]);
+	printf("]\n");
+}
+
+#ifdef microblaze
+static
+void wal_dmem_print_s(
+	wal_worker_t *wrk,
+	unsigned int simdid,
+	unsigned int memid,
+	unsigned int memoffs,
+	unsigned int len
+	)
+{
+	assert( len <= 1024 );
+
+	float mem[1024];
+	WAL_CHECK( wal_dmem2mb(wrk, simdid, memid, memoffs, mem, len) );
+	print_arr_s(mem, len);
+}
+#endif
+#endif
+
+/**
+ * Accelerates one block of one lifting step.
+ */
+static
+void accel_lift_step_block_s(
+	float *arr,	///< beginning of outer array element
+	int len,	///< length of outer array, max. BANK_SIZE_S
+	float alpha	///< lifting constant (positive or negative)
+	)
+{
+	// does not make sense to use with even length
+	assert( len&1 );
+
+	assert( len <= BANK_SIZE_S );
+
+#ifdef microblaze
+	const int steps = (len-1)/2;
+
+	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS_S(0,0), arr, len) );
+	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS_S(0,0), arr, len) );
+	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS_S(1,0), &alpha, 1) );
+	WAL_CHECK( wal_bce_op(worker, WAL_PBID_P0, WAL_BCE_JK_VADD, 0, 0, 2, 0, 1, 0, 0, 0, 0, 2, 2, 2, steps) );
+	WAL_CHECK( wal_bce_op(worker, WAL_PBID_P0, WAL_BCE_JK_VMULT_AZ2B, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 2, 2, steps) );
+	WAL_CHECK( wal_bce_op(worker, WAL_PBID_P0, WAL_BCE_JK_VADD, 1, 0, 1, 0, 1, 0, 0, 1, 0, 2, 2, 2, steps) );
+	WAL_CHECK( wal_bce_op(worker, WAL_PBID_P0, WAL_BCE_JK_VZ2B, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 2, 2, steps) );
+	WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS_S(0,0), arr, len) );
+#else
+	for(int i = 1; i < len-1; i += 2)
+	{
+		arr[i] += alpha * (arr[i-1] + arr[i+1]);
+	}
+#endif
+}
+
+/**
+ * Accelerates one lifting step.
+ */
+static
+void accel_lift_step_s(
+	float *arr,	///< beginning of outer array element
+	int len,	///< length of outer array
+	float alpha	///< lifting constant (positive or negative)
+	)
+{
+	// does not make sense to use with even length
+	assert( len&1 );
+
+	// optimization
+	if( 1 == len )
+		return;
+
+	if(dwt_util_global_accel_type[0])
+	{
+		const int block_size = BANK_SIZE_S - (1-(BANK_SIZE_S&1)) - 2;
+		const int block_count = ceil_div(len-1,block_size+1);
+		for(int nn = 0; nn < block_count; nn++)
+		{
+			const int L = (nn+0)*(block_size+1) + 1;
+			const int R = (nn+1)*(block_size+1) - 1 > len - 2 ?
+				len - 2 : (nn+1)*(block_size+1) - 1;
+	
+			accel_lift_step_block_s(arr+L-1, R-L+3, alpha);
+		}
+	}
+	else
+	{
+		for(int i = 1; i < len; i += 2)
+		{
+			arr[i] += alpha * (arr[i-1] + arr[i+1]);
+		}
+	}
+}
+
 void dwt_cdf97_f_ex_stride_s(
 	const float *src,
 	float *dst_l,
@@ -605,8 +785,7 @@ void dwt_cdf97_f_ex_stride_s(
 		tmp[i] = *addr1_const_s(src,i,stride);
 
 	// predict 1 + update 1
-	for(int i=1; i<N-2+(N&1); i+=2)
-		tmp[i] -= dwt_cdf97_p1_s * (tmp[i-1] + tmp[i+1]);
+	accel_lift_step_s(&tmp[0], N-1+(N&1), -dwt_cdf97_p1_s);
 
 	if(N&1)
 		tmp[N-1] += 2 * dwt_cdf97_u1_s * tmp[N-2];
@@ -615,12 +794,10 @@ void dwt_cdf97_f_ex_stride_s(
 
 	tmp[0] += 2 * dwt_cdf97_u1_s * tmp[1];
 
-	for(int i=2; i<N-(N&1); i+=2)
-		tmp[i] += dwt_cdf97_u1_s * (tmp[i-1] + tmp[i+1]);
+	accel_lift_step_s(&tmp[1], N-1-(N&1),  dwt_cdf97_u1_s);
 
 	// predict 2 + update 2
-	for(int i=1; i<N-2+(N&1); i+=2)
-		tmp[i] -= dwt_cdf97_p2_s * (tmp[i-1] + tmp[i+1]);
+	accel_lift_step_s(&tmp[0], N-1+(N&1), -dwt_cdf97_p2_s);
 
 	if(N&1)
 		tmp[N-1] += 2 * dwt_cdf97_u2_s * tmp[N-2];
@@ -629,8 +806,7 @@ void dwt_cdf97_f_ex_stride_s(
 
 	tmp[0] += 2 * dwt_cdf97_u2_s * tmp[1];
 
-	for(int i=2; i<N-(N&1); i+=2)
-		tmp[i] += dwt_cdf97_u2_s * (tmp[i-1] + tmp[i+1]);
+	accel_lift_step_s(&tmp[1], N-1-(N&1),  dwt_cdf97_u2_s);
 
 	// scale
 	for(int i=0; i<N; i+=2)
@@ -1280,7 +1456,7 @@ dwt_clock_t dwt_util_get_frequency(
 		case DWT_TIME_CLOCK_GETTIME:
 		{
 #ifdef ENABLE_TIME_CLOCK_GETTIME
-			return_freq = (dwt_clock_t)1000000000L;
+			return_freq = (dwt_clock_t)1000000000;
 #else
 			abort();
 #endif
@@ -1309,7 +1485,7 @@ dwt_clock_t dwt_util_get_frequency(
 		case DWT_TIME_GETRUSAGE:
 		{
 #ifdef ENABLE_TIME_GETRUSAGE
-			return_freq = (dwt_clock_t)1000000000L;
+			return_freq = (dwt_clock_t)1000000000;
 #else
 			abort();
 #endif
@@ -1337,14 +1513,14 @@ dwt_clock_t dwt_util_get_clock(
 #ifdef ENABLE_TIME_CLOCK_GETTIME
 			clockid_t clk_id = /*CLOCK_THREAD_CPUTIME_ID*/ /*CLOCK_PROCESS_CPUTIME_ID*/ CLOCK_REALTIME; // FIXME
 
-			long time;
+			dwt_clock_t time;
 
 			struct timespec ts;
 
 			if(clock_gettime(clk_id, &ts))
 				abort();
 
-			time = (ts.tv_sec) * 1000000000L + (ts.tv_nsec);
+			time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 
 			return_time = (dwt_clock_t)time;
 #else
@@ -1385,9 +1561,9 @@ dwt_clock_t dwt_util_get_clock(
 		case DWT_TIME_GETRUSAGE:
 		{
 #ifdef ENABLE_TIME_GETRUSAGE
-			int who = /*RUSAGE_SELF*/ RUSAGE_THREAD; // FIXME
+			int who = RUSAGE_SELF /*RUSAGE_THREAD*/; // FIXME
 
-			long time;
+			dwt_clock_t time;
 
 			struct timeval tv;
 			struct rusage rusage_i;
@@ -1398,7 +1574,7 @@ dwt_clock_t dwt_util_get_clock(
 			tv = rusage_i.ru_utime;
 			TIMEVAL_TO_TIMESPEC(&tv, &ts);
 
-			time = (ts.tv_sec) * 1000000000L + (ts.tv_nsec);
+			time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 
 			return_time = (dwt_clock_t)time;
 #else
@@ -1416,7 +1592,7 @@ dwt_clock_t dwt_util_get_clock(
 int dwt_util_get_max_threads()
 {
 #ifdef _OPENMP
-		return omp_get_max_threads();
+	return omp_get_max_threads();
 #else
 	return 1;
 #endif
@@ -1430,4 +1606,65 @@ void dwt_util_set_num_threads(
 #else
 	UNUSED(num_threads);
 #endif
+}
+
+void dwt_util_init()
+{
+#ifdef microblaze
+	WAL_CHECK( wal_init_worker(worker) );
+
+	WAL_CHECK( wal_set_firmware(worker, WAL_PBID_P0, fw_fp01_eval_op, -1) );
+
+	WAL_CHECK( wal_set_firmware(worker, WAL_PBID_P1, fw_fp01_eval_op, -1) );
+
+	WAL_CHECK( wal_reset_worker(worker) );
+
+	dwt_util_set_accel(1);
+#endif
+}
+
+void dwt_util_finish()
+{
+#ifdef microblaze
+	WAL_CHECK( wal_done_worker(worker) );
+#endif
+}
+
+int dwt_util_save_to_pgm_s(
+	const char *filename,
+	float max_value,
+	void *ptr,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y)
+{
+	const int target_max_value = 255;
+
+	FILE *file = fopen(filename, "w");
+	if(NULL == file)
+		return 1;
+
+	fprintf(file, "P2\n%i %i\n%i\n", size_i_big_x, size_i_big_y, target_max_value);
+
+	for(int y = 0; y < size_i_big_y; y++)
+		for(int x = 0; x < size_i_big_x; x++)
+		{
+			const float px = *addr2_s(ptr, y, x, stride_x, stride_y);
+			if( fprintf(file, "%i\n", (int)(target_max_value*px/max_value)) < 0)
+			{
+				fclose(file);
+				return 1;
+			}
+		}
+
+	fclose(file);
+
+	return 0;
+}
+
+void dwt_util_set_accel(
+	int accel_type)
+{
+	dwt_util_global_accel_type[0] = accel_type;
 }

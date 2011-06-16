@@ -1,6 +1,6 @@
-VERSION=`cat ../VERSION`
+include ../common.mk
+
 LIBNAME=libdwt
-CFLAGS=-std=c99 -pedantic -Wall -Wextra -O2 -fopenmp -fPIC -DLIBDWT_VERSION="$(VERSION)"
 
 .PHONY: all clean version
 
@@ -11,19 +11,16 @@ clean:
 
 $(LIBNAME).o: $(LIBNAME).c $(LIBNAME).h
 
-$(LIBNAME).a: $(LIBNAME).o
-	$(AR) -rsc $@ $^
-
-$(LIBNAME).so: $(LIBNAME).o
-	$(CC) -shared -o $@ $^
-
-version:
-	echo $(VERSION)
+# $(LIBNAME).a: $(LIBNAME).o
+# 	$(AR) -rsc $@ $^
+# 
+# $(LIBNAME).so: $(LIBNAME).o
+# 	$(CC) -shared -o $@ $^
 
 LIBNAME_CV=cvdwt
 
 $(LIBNAME_CV).o: $(LIBNAME_CV).cpp $(LIBNAME_CV).h
 	$(CXX) `pkg-config --cflags opencv` -c -o $@ $<
 
-$(LIBNAME_CV).a: $(LIBNAME_CV).o
-	$(AR) -rsc $@ $^
+# $(LIBNAME_CV).a: $(LIBNAME_CV).o
+# 	$(AR) -rsc $@ $^

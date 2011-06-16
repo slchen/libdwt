@@ -1,3 +1,8 @@
+2011-06-16 David Barina <ibarina@fit.vutbr.cz>
+
+* libdwt.c libdwt.h Makefile INSTALL examples/simple: Added support for UTIA
+EdkDSP platform. Several small fixes.
+
 2011-06-07 David Barina <ibarina@fit.vutbr.cz>
 
 * libdwt.h: Fixed usage of string class.

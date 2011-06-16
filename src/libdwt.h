@@ -9,6 +9,9 @@
 #ifndef _POSIX_C_SOURCE
 	#define _POSIX_C_SOURCE 199309L
 #endif
+#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
+#endif
 
 #include <stdint.h> // int64_t
 
@@ -114,7 +117,7 @@ void dwt_cdf97_f_ex_stride_d(
 	double *dst_h,		///< output H (high pass) channel of length @f$ \lfloor N/2 \rfloor @f$
 	double *tmp,		///< temporary memory space of the length @e N
 	int N,			///< length of the input signal, odd or even length
-	int stride		///< image stride, i.e. the number of bytes from one row of pixels to the next row of pixels, common for @e src, @e dst_l and @e dst_h
+	int stride		///< image stride, i.e. the number of bytes between two neighboring pixels, no matter if in the row or column, common for @e src, @e dst_l and @e dst_h
 );
 
 /**
@@ -128,7 +131,7 @@ void dwt_cdf97_f_ex_stride_s(
 	float *dst_h,		///< output H (high pass) channel of length @f$ \lfloor N/2 \rfloor @f$
 	float *tmp,		///< temporary memory space of the length @e N
 	int N,			///< length of the input signal, odd or even length
-	int stride		///< image stride, i.e. the number of bytes from one row of pixels to the next row of pixels, common for @e src, @e dst_l and @e dst_h
+	int stride		///< image stride, i.e. the number of bytes between two neighboring pixels, no matter if in the row or column, common for @e src, @e dst_l and @e dst_h
 );
 
 /**
@@ -560,6 +563,46 @@ int dwt_util_get_max_threads();
  */
 void dwt_util_set_num_threads(
 	int num_threads);
+
+/**
+ * @brief Enable block-acceleration using workers in UTIA EdkDSP platform.
+ *
+ * @warning highly experimental
+ */
+void dwt_util_set_accel(
+	int accel_type);
+
+/**
+ * @brief Initialize worker in UTIA EdkDSP platform.
+ *
+ * @warning highly experimental
+ */
+void dwt_util_init();
+
+/**
+ * @brief Release all resources allocated in @ref dwt_util_init function.
+ *
+ * @warning highly experimental
+ */
+void dwt_util_finish();
+
+/**
+ * @brief Save grayscale image into PGM file.
+ *
+ * See <a href="http://netpbm.sourceforge.net/">the home page for Netpbm</a>.
+ * This function works with single precision floating point numbers (i.e. float data type).
+ *
+ * @warning highly experimental
+ */
+int dwt_util_save_to_pgm_s(
+	const char *filename,	///< target file name, e.g. "output.pgm"
+	float max_value, 	///< maximum value of pixel, e.g. 1.0 if image values lie inside an interval [0.0; 1.0]
+	void *ptr,		///< pointer to beginning of image data
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y	///< height of nested image (in elements)
+);
 
 /**
  * @}

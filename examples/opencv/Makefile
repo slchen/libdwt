@@ -1,9 +1,11 @@
-LIBPATH=../../src
-LIBNAME=libdwt
-LIBNAME_CV=cvdwt
-CXXFLAGS=`pkg-config --cflags opencv` -std=c++98 -pedantic -Wall -Wextra -O2 -I$(LIBPATH)
-LDFLAGS=`pkg-config --libs opencv` -fopenmp
-BIN=showdwt
+include ../../common.mk
+
+LIBPATH = $(ROOT)/src
+LIBNAME = libdwt
+LIBNAME_CV = cvdwt
+CXXFLAGS = `pkg-config --cflags opencv` -std=c++98 -pedantic -Wall -Wextra -O2 -I$(LIBPATH)
+LDLIBS += `pkg-config --libs opencv`
+BIN = showdwt
 
 .PHONY: all clean
 

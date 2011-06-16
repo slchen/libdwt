@@ -1,8 +1,9 @@
-LIBNAME=libdwt
-LIBPATH=../../src
-CFLAGS=-std=c99 -pedantic -Wall -Wextra -O2 -I$(LIBPATH) -fopenmp
-LDFLAGS=-lrt -fopenmp -lm
-BIN=simple
+include ../../common.mk
+
+LIBNAME = libdwt
+LIBPATH = $(ROOT)/src
+CFLAGS += -I$(LIBPATH)
+BIN = simple
 
 .PHONY: all clean
 
@@ -10,7 +11,7 @@ all: $(BIN)
 
 clean:
 	$(MAKE) -C $(LIBPATH) $@
-	-$(RM) $(BIN) *.o
+	-$(RM) $(BIN) *.o *.elf *.gdb
 
 $(BIN): $(BIN).o $(LIBPATH)/$(LIBNAME).o
 

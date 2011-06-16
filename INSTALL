@@ -1,0 +1,42 @@
+== UTIA EdkDSP platform ==
+
+For cross-compilation for UTIA EdkDSP platform copy following files into ./api
+directory:
+
+├── 00-pb-firmware
+│   ├── dfu_fp01_1x1.h
+│   └── dfu_fp01_1x1.psmo
+└── 02-mb-petalinux
+    ├── libbce_step3
+    │   ├── bce_fp01_1x1_plbw.h
+    │   ├── libbce_fp01_1x1.a
+    │   ├── xbasic_types.h
+    │   ├── xcope.h
+    │   └── xstatus.h
+    └── libwal
+        ├── libwal.a
+        ├── wal_bce_jk.h
+        └── wal.h
+
+Furthermore, apply ./api/02-mb-petalinux/libbce_step3/xcope.h.patch patch.
+
+Now, you will need PicoBlaze compiler. Copy fw_fp01_eval_op.c into
+./src/firmware directory and run make here. You will get following directory
+structure:
+
+├── cvdwt.cpp
+├── cvdwt.h
+├── firmware
+│   ├── fw_fp01_eval_op.c
+│   ├── fw_fp01_eval_op.h
+│   └── Makefile
+├── libdwt.c
+├── libdwt.h
+├── mainpage.h
+└── Makefile
+
+For library compilation you will need properly configured PetaLinux compiler.
+You can test it on example application in directory ./examples/simple with
+command:
+
+make ARCH=microblaze
