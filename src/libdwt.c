@@ -12,18 +12,18 @@
 
 	WAL_REGISTER_WORKER(worker, BCE_JK_FP32M24, BCE_FP01_1X1_PLBW_ConfigTable, 0, 1, 0);
 
-	#include "firmware/fw_fp01_eval_op.h"
+	#include "firmware/fw_fp01_lift97.h"
 
 	/**
 	 * Size of each EdkDSP memory bank is 256 floats
 	 */
-	#define EDKDSP_BANK_SIZE_S 256
+	#define EDKDSP_BANK_SIZE 256
 #endif
 
 #ifdef microblaze
-	#define BANK_SIZE_S EDKDSP_BANK_SIZE_S
+	#define BANK_SIZE EDKDSP_BANK_SIZE
 #else
-	#define BANK_SIZE_S 4096
+	#define BANK_SIZE 4096
 #endif
 
 #if !defined(P4A)
@@ -615,37 +615,6 @@ void dwt_cdf97_f_ex_stride_d(
 }
 
 #ifdef microblaze
-/**
- * Start worker operation in UTIA EdkDSP platform.
- */
-static
-int wal_bce_op(
-	wal_worker_t *wrk,
-	unsigned int pbid,	///< WAL_PBID_P0
-	unsigned int op,	///< DFU operation
-	unsigned int a,		///< offset of first element in A
-	unsigned int as,	///< restart address for A
-	unsigned int b,		///< offset of first element in B
-	unsigned int bs,	///< restart address for B
-	unsigned int z,		///< offset of first element in Z
-	unsigned int zs,	///< restart address for Z
-	unsigned int ah,	///< bank of A
-	unsigned int bh,	///< bank of B
-	unsigned int zh,	///< bank of Z
-	unsigned int inca,	///< increment for A
-	unsigned int incb,	///< increment for B
-	unsigned int incz,	///< increment for Z
-	unsigned int nn		///< length of input data vectors
-)
-{
-	wal_bce_jk_create_operation(wrk, pbid, op, a, as, b, bs, z, zs, ah, bh, zh, inca, incb, incz, nn);
-	wal_bce_jk_sync_operation(wrk);
-
-	return WAL_RES_OK;
-}
-#endif
-
-#ifdef microblaze
 
 #ifdef NDEBUG
 	#define WAL_CHECK(expr) (expr)
@@ -653,40 +622,8 @@ int wal_bce_op(
 	#define WAL_CHECK(expr) ( (expr) ? abort() : (void)0 )
 #endif
 
-#define WAL_BANK_POS_S(bank, off) ( (bank)*EDKDSP_BANK_SIZE_S + (off) )
+#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
 
-#endif
-
-#if 0
-static
-void print_arr_s(
-	float *arr,	///< beginning of outer array element
-	int len		///< length of outer array
-	)
-{
-	printf("[ ");
-	for(int i = 0; i < len; i++)
-		printf("%f ", arr[i]);
-	printf("]\n");
-}
-
-#ifdef microblaze
-static
-void wal_dmem_print_s(
-	wal_worker_t *wrk,
-	unsigned int simdid,
-	unsigned int memid,
-	unsigned int memoffs,
-	unsigned int len
-	)
-{
-	assert( len <= 1024 );
-
-	float mem[1024];
-	WAL_CHECK( wal_dmem2mb(wrk, simdid, memid, memoffs, mem, len) );
-	print_arr_s(mem, len);
-}
-#endif
 #endif
 
 /**
@@ -702,19 +639,16 @@ void accel_lift_step_block_s(
 	// does not make sense to use with even length
 	assert( len&1 );
 
-	assert( len <= BANK_SIZE_S );
+	assert( len <= BANK_SIZE );
 
 #ifdef microblaze
-	const int steps = (len-1)/2;
+	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, len) );
+	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), &alpha, 1) );
 
-	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS_S(0,0), arr, len) );
-	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS_S(0,0), arr, len) );
-	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS_S(1,0), &alpha, 1) );
-	WAL_CHECK( wal_bce_op(worker, WAL_PBID_P0, WAL_BCE_JK_VADD, 0, 0, 2, 0, 1, 0, 0, 0, 0, 2, 2, 2, steps) );
-	WAL_CHECK( wal_bce_op(worker, WAL_PBID_P0, WAL_BCE_JK_VMULT_AZ2B, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 2, 2, steps) );
-	WAL_CHECK( wal_bce_op(worker, WAL_PBID_P0, WAL_BCE_JK_VADD, 1, 0, 1, 0, 1, 0, 0, 1, 0, 2, 2, 2, steps) );
-	WAL_CHECK( wal_bce_op(worker, WAL_PBID_P0, WAL_BCE_JK_VZ2B, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 2, 2, steps) );
-	WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS_S(0,0), arr, len) );
+	WAL_CHECK( wal_mb2pb(worker, len) );
+	WAL_CHECK( wal_pb2mb(worker, NULL) );
+
+	WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, len) );
 #else
 	for(int i = 1; i < len-1; i += 2)
 	{
@@ -742,7 +676,7 @@ void accel_lift_step_s(
 
 	if(dwt_util_global_accel_type[0])
 	{
-		const int block_size = BANK_SIZE_S - (1-(BANK_SIZE_S&1)) - 2;
+		const int block_size = BANK_SIZE - (1 - (BANK_SIZE&1)) - 2;
 		const int block_count = ceil_div(len-1,block_size+1);
 		for(int nn = 0; nn < block_count; nn++)
 		{
@@ -1613,13 +1547,13 @@ void dwt_util_init()
 #ifdef microblaze
 	WAL_CHECK( wal_init_worker(worker) );
 
-	WAL_CHECK( wal_set_firmware(worker, WAL_PBID_P0, fw_fp01_eval_op, -1) );
-
-	WAL_CHECK( wal_set_firmware(worker, WAL_PBID_P1, fw_fp01_eval_op, -1) );
+	WAL_CHECK( wal_set_firmware(worker, WAL_PBID_P1, fw_fp01_lift97, -1) );
 
 	WAL_CHECK( wal_reset_worker(worker) );
 
 	dwt_util_set_accel(1);
+
+	WAL_CHECK( wal_start_operation(worker, WAL_PBID_P1) );
 #endif
 }
 
@@ -1627,6 +1561,10 @@ void dwt_util_finish()
 {
 #ifdef microblaze
 	WAL_CHECK( wal_done_worker(worker) );
+
+	WAL_CHECK( wal_mb2pb(worker, 0) );
+
+	WAL_CHECK( wal_bce_jk_sync_operation(worker) );
 #endif
 }
 

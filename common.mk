@@ -1,7 +1,5 @@
 ROOT = $(dir $(lastword $(MAKEFILE_LIST)))
 
-# $(warning ROOT='$(ROOT)')
-
 NAME = dwt
 VERSION := $(shell cat $(ROOT)/VERSION)
 DATE := $(shell date -R)
@@ -22,3 +20,9 @@ help:
 	@echo "In case of any problems contact '$(AUTHORS)'."
 
 include $(ROOT)/arch.mk
+
+EDKDSP_SERVER = ibarina@pcbarina.fit.vutbr.cz
+EDKDSP_CLIENT = 192.168.0.10
+.PHONY: upload
+upload: all
+	cat $(BIN) | ssh $(EDKDSP_SERVER) "curl -n -T - -Q \"-SITE CHMOD 777 /tmp/$(BIN)\" ftp://$(EDKDSP_CLIENT)/tmp/$(BIN)"

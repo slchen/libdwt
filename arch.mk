@@ -24,5 +24,3 @@ CFLAGS += -fopenmp -fPIC
 LDFLAGS += -fopenmp
 LDLIBS += -lrt
 endif
-
-# $(warning ARCH='$(ARCH)' CC='$(CC)' CFLAGS='$(CFLAGS)' LDFLAGS='$(LDFLAGS)' LDLIBS='$(LDLIBS)')

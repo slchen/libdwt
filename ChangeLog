@@ -1,3 +1,8 @@
+2011-06-20 David Barina <ibarina@fit.vutbr.cz>
+
+* libdwt.c Makefile INSTALL firmware/fw_fp01_lift97.c: Improved UTIA EdkDSP
+platform support. Computation is now implemented in PicoBlaze firmware.
+
 2011-06-16 David Barina <ibarina@fit.vutbr.cz>
 
 * libdwt.c libdwt.h Makefile INSTALL examples/simple: Added support for UTIA

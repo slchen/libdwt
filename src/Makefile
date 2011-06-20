@@ -9,6 +9,17 @@ all: $(LIBNAME).o
 clean:
 	-$(RM) *.o *.a *.so
 
+# ARCH=microblaze needs firmware
+ifeq ($(ARCH),microblaze)
+FWDIR = firmware
+FWNAME = fw_fp01_lift97
+
+$(LIBNAME).c: $(FWDIR)/$(FWNAME).h
+
+$(FWDIR)/$(FWNAME).h: $(FWDIR)/$(FWNAME).c
+	$(MAKE) -C $(FWDIR) $(FWNAME).h
+endif
+
 $(LIBNAME).o: $(LIBNAME).c $(LIBNAME).h
 
 # $(LIBNAME).a: $(LIBNAME).o
