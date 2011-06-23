@@ -15,3 +15,7 @@
 * tiling (e.g., as in JPEG 2000)
 * remove "lib" prefix pro source file names
 * group lifting steps into one for-loop (suitable for SIMD implementation and UTIA EdkDSP platform)
+* 2D DWT: single-loop approach (iteration of horizontal part is immediately fed into iteration of vertical part)
+* memory access through incremented pointers instead of indexed arrays
+* cache optimizations (stride should be prime?)
+* EdkDSP: new http://sp.utia.cz/index.php?ids=results&id=edkdspsdktools

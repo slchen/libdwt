@@ -1,3 +1,7 @@
+2011-06-23 David Barina <ibarina@fit.vutbr.cz>
+* libdwt.c firmware/fw_fp01_lift97.c: Improved EdkDSP acceleration (two lifting
+steps merged together).
+
 2011-06-20 David Barina <ibarina@fit.vutbr.cz>
 
 * libdwt.c Makefile INSTALL firmware/fw_fp01_lift97.c: Improved UTIA EdkDSP

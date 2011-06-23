@@ -13,17 +13,15 @@
 	WAL_REGISTER_WORKER(worker, BCE_JK_FP32M24, BCE_FP01_1X1_PLBW_ConfigTable, 0, 1, 0);
 
 	#include "firmware/fw_fp01_lift97.h"
-
-	/**
-	 * Size of each EdkDSP memory bank is 256 floats
-	 */
-	#define EDKDSP_BANK_SIZE 256
 #endif
 
+/**
+ * Size of each EdkDSP memory bank is 256 floats
+ */
 #ifdef microblaze
-	#define BANK_SIZE EDKDSP_BANK_SIZE
+	#define BANK_SIZE 256
 #else
-	#define BANK_SIZE 4096
+	#define BANK_SIZE 256
 #endif
 
 #if !defined(P4A)
@@ -580,7 +578,7 @@ void dwt_cdf97_f_ex_stride_d(
 	if(N&1)
 		tmp[N-1] += 2 * dwt_cdf97_u1_d * tmp[N-2];
 	else
-		tmp[N-1] -= 2 * dwt_cdf97_p1_d * tmp[N-2];;
+		tmp[N-1] -= 2 * dwt_cdf97_p1_d * tmp[N-2];
 
 	tmp[0] += 2 * dwt_cdf97_u1_d * tmp[1];
 
@@ -627,72 +625,191 @@ void dwt_cdf97_f_ex_stride_d(
 #endif
 
 /**
- * Accelerates one block of one lifting step.
+ * @brief PicoBlaze operation (see attached SVG/PDF file).
+ *
+ * Two (predict and update) lifting steps merged together.
+ * This function is accelerated on EdkDSP.
  */
 static
-void accel_lift_step_block_s(
-	float *arr,	///< beginning of outer array element
-	int len,	///< length of outer array, max. BANK_SIZE_S
-	float alpha	///< lifting constant (positive or negative)
+void accel_lift_pb_op_s(
+	float *arr,
+	int steps,
+	float alpha,
+	float beta
 	)
 {
-	// does not make sense to use with even length
-	assert( len&1 );
+	assert( steps > 0 );
 
-	assert( len <= BANK_SIZE );
+	assert( steps <= (BANK_SIZE-2)/2 );
 
 #ifdef microblaze
-	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, len) );
-	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), &alpha, 1) );
+	const float coeffs[3] = {alpha, 0.0f, beta};
 
-	WAL_CHECK( wal_mb2pb(worker, len) );
+	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, 2*steps+2) );
+	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), coeffs, 3) );
+
+	WAL_CHECK( wal_mb2pb(worker, steps) );
 	WAL_CHECK( wal_pb2mb(worker, NULL) );
 
-	WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, len) );
+	WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,1), arr+1, 2*steps) );
 #else
-	for(int i = 1; i < len-1; i += 2)
+	for(int s = 0; s < steps; s++)
 	{
+		const int i = 2 + s*2;
 		arr[i] += alpha * (arr[i-1] + arr[i+1]);
+	}
+	for(int s = 0; s < steps; s++)
+	{
+		const int i = 1 + s*2;
+		arr[i] += beta * (arr[i-1] + arr[i+1]);
 	}
 #endif
 }
 
-/**
- * Accelerates one lifting step.
- */
+/** returns 1 if x is odd, 0 otherwise */
 static
-void accel_lift_step_s(
-	float *arr,	///< beginning of outer array element
-	int len,	///< length of outer array
-	float alpha	///< lifting constant (positive or negative)
+int is_odd(int x)
+{
+	return x&1;
+}
+
+/** returns 1 if x is even, 0 otherwise */
+static
+int is_even(int x)
+{
+	return 1&~x;
+}
+
+/** returns closest even integer not larger than x */
+static
+int to_even(int x)
+{
+	return x&~1;
+}
+
+/** returns closest odd integer not larger than x */
+static
+int to_odd(int x)
+{
+	return x - (1&~x);
+}
+
+static
+void accel_lift_prolog_s(
+	float *arr,
+	int off,
+	int N,
+	float alpha,
+	float beta
 	)
 {
-	// does not make sense to use with even length
-	assert( len&1 );
-
-	// optimization
-	if( 1 == len )
-		return;
-
-	if(dwt_util_global_accel_type[0])
+	if(off)
 	{
-		const int block_size = BANK_SIZE - (1 - (BANK_SIZE&1)) - 2;
-		const int block_count = ceil_div(len-1,block_size+1);
-		for(int nn = 0; nn < block_count; nn++)
+		if(N > 2)
 		{
-			const int L = (nn+0)*(block_size+1) + 1;
-			const int R = (nn+1)*(block_size+1) - 1 > len - 2 ?
-				len - 2 : (nn+1)*(block_size+1) - 1;
-	
-			accel_lift_step_block_s(arr+L-1, R-L+3, alpha);
+			arr[1] += alpha*(arr[0]+arr[2]);
 		}
+		else
+		{
+			arr[1] += 2*alpha*arr[0];
+		}
+
+		arr[0] += 2*beta*arr[1];
 	}
 	else
 	{
-		for(int i = 1; i < len; i += 2)
+		arr[0] += 2*alpha*arr[1];
+	}
+}
+
+static
+void accel_lift_epilog_s(
+	float *arr,
+	int off,
+	int N,
+	float alpha,
+	float beta
+	)
+{
+	if( N-off > 1 )
+	{
+		if( is_even(N-off) )
 		{
-			arr[i] += alpha * (arr[i-1] + arr[i+1]);
+			arr[N-1] += 2*beta*arr[N-2];
 		}
+		else
+		{
+			arr[N-1] += 2*alpha*arr[N-2];
+
+			arr[N-2] += beta*(arr[N-1]+arr[N-3]);
+		}
+	}
+}
+
+static
+void accel_lift_op_s(
+	float *arr,
+	int off,	///< offset; 0 for update+predict (inverse transform), 1 for predict+update (forward transform)
+	int len,
+	float alpha,
+	float beta
+	)
+{
+	assert(len >= 2);
+
+	assert(0 == off || 1 == off);
+
+	if(dwt_util_global_accel_type[0])
+	{
+		accel_lift_prolog_s(arr, off, len, alpha, beta);
+
+		const int max_inner_len = to_even(BANK_SIZE) - 2;
+		const int inner_len = to_even(len-off) - 2;
+		const int blocks = inner_len / max_inner_len;
+		for(int b = 0; b < blocks; b++)
+		{
+			const int left = off + b * max_inner_len;
+			const int steps = max_inner_len/2;
+
+			accel_lift_pb_op_s(&arr[left], steps, alpha, beta);
+		}
+		if( blocks*max_inner_len < inner_len )
+		{
+			// TODO: tady může být test, jestli se ten poslední zkrácený blok vyplatí počítat v EdkDSP nebo raději na procesoru (MicroBlaze)
+
+			const int left = off + blocks * max_inner_len;
+			const int steps = (off + inner_len - left)/2;
+
+			accel_lift_pb_op_s(&arr[left], steps, alpha, beta);
+		}
+
+		accel_lift_epilog_s(arr, off, len, alpha, beta);
+	}
+	else
+	{
+		accel_lift_prolog_s(arr, off, len, alpha, beta);
+
+		const int steps = (to_even(len-off) - 2)/2;
+
+		if( steps )
+		{
+			arr += off; // HACK
+			
+			for(int s = 0; s < steps; s++)
+			{
+				const int i = 2 + s*2;
+				arr[i] += alpha * (arr[i-1] + arr[i+1]);
+			}
+			for(int s = 0; s < steps; s++)
+			{
+				const int i = 1 + s*2;
+				arr[i] += beta * (arr[i-1] + arr[i+1]);
+			}
+
+			arr -= off; // HACK
+		}
+
+		accel_lift_epilog_s(arr, off, len, alpha, beta);
 	}
 }
 
@@ -719,28 +836,12 @@ void dwt_cdf97_f_ex_stride_s(
 		tmp[i] = *addr1_const_s(src,i,stride);
 
 	// predict 1 + update 1
-	accel_lift_step_s(&tmp[0], N-1+(N&1), -dwt_cdf97_p1_s);
-
-	if(N&1)
-		tmp[N-1] += 2 * dwt_cdf97_u1_s * tmp[N-2];
-	else
-		tmp[N-1] -= 2 * dwt_cdf97_p1_s * tmp[N-2];;
-
-	tmp[0] += 2 * dwt_cdf97_u1_s * tmp[1];
-
-	accel_lift_step_s(&tmp[1], N-1-(N&1),  dwt_cdf97_u1_s);
+	accel_lift_op_s(tmp, 1, N, -dwt_cdf97_p1_s, dwt_cdf97_u1_s);
 
 	// predict 2 + update 2
-	accel_lift_step_s(&tmp[0], N-1+(N&1), -dwt_cdf97_p2_s);
+	accel_lift_op_s(tmp, 1, N, -dwt_cdf97_p2_s, dwt_cdf97_u2_s);
 
-	if(N&1)
-		tmp[N-1] += 2 * dwt_cdf97_u2_s * tmp[N-2];
-	else
-		tmp[N-1] -= 2 * dwt_cdf97_p2_s * tmp[N-2];
-
-	tmp[0] += 2 * dwt_cdf97_u2_s * tmp[1];
-
-	accel_lift_step_s(&tmp[1], N-1-(N&1),  dwt_cdf97_u2_s);
+	// TODO: accelerate also scaling
 
 	// scale
 	for(int i=0; i<N; i+=2)
@@ -883,32 +984,10 @@ void dwt_cdf97_i_ex_stride_s(
 		tmp[i] = tmp[i] * dwt_cdf97_s1_s;
 
 	// backward update 2 + backward predict 2
-	for(int i=2; i<N-(N&1); i+=2)
-		tmp[i] -= dwt_cdf97_u2_s * (tmp[i-1] + tmp[i+1]);
-
-	tmp[0] -= 2 * dwt_cdf97_u2_s * tmp[1];
-
-	if(N&1)
-		tmp[N-1] -= 2 * dwt_cdf97_u2_s * tmp[N-2];
-	else
-		tmp[N-1] += 2 * dwt_cdf97_p2_s * tmp[N-2];
-
-	for(int i=1; i<N-2+(N&1); i+=2)
-		tmp[i] += dwt_cdf97_p2_s * (tmp[i-1] + tmp[i+1]);
+	accel_lift_op_s(tmp, 0, N, -dwt_cdf97_u2_s, dwt_cdf97_p2_s);
 
 	// backward update 1 + backward predict 1
-	for(int i=2; i<N-(N&1); i+=2)
-		tmp[i] -= dwt_cdf97_u1_s * (tmp[i-1] + tmp[i+1]);
-
-	tmp[0] -= 2 * dwt_cdf97_u1_s * tmp[1];
-
-	if(N&1)
-		tmp[N-1] -= 2 * dwt_cdf97_u1_s * tmp[N-2];
-	else
-		tmp[N-1] += 2 * dwt_cdf97_p1_s * tmp[N-2];
-
-	for(int i=1; i<N-2+(N&1); i+=2)
-		tmp[i] += dwt_cdf97_p1_s * (tmp[i-1] + tmp[i+1]);
+	accel_lift_op_s(tmp, 0, N, -dwt_cdf97_u1_s, dwt_cdf97_p1_s);
 
 	// copy tmp into dst
 	for(int i=0; i<N; i++)
