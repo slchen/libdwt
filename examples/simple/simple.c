@@ -61,11 +61,11 @@ int main()
 	else
 		printf("success\n");
 
+	dwt_util_finish();
+
 	printf("saving...\n");
 	dwt_util_save_to_pgm_s("data1.pgm", 1.0, data1, stride_x, stride_y, x, y);
 	dwt_util_save_to_pgm_s("data2.pgm", 1.0, data2, stride_x, stride_y, x, y);
-
-	dwt_util_finish();
 
 	return 0;
 }

@@ -4,7 +4,9 @@ ARCH ?= $(shell arch)
 CTARGET ?= 
 CROSS_COMPILE ?= $(CTARGET)-
 CC = $(CROSS_COMPILE)gcc
-CFLAGS = -std=c99 -pedantic -Wall -Wextra -O2 -DLIBDWT_VERSION="$(VERSION)"
+CFLAGS = -std=c99 -pedantic -Wall -Wextra -O2 -DPACKAGE_VERSION="$(PACKAGE_VERSION)" -DPACKAGE_NAME="$(PACKAGE_NAME)"
+CFLAGS += -finline-functions # FIXME: good performance on microblaze
+# CFLAGS += -DNDEBUG # NOTE: faster
 LDLIBS = -lm
 LDFLAGS = 
 

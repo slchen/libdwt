@@ -1,7 +1,7 @@
 EDKDSP_API_PATH=../../api
 CC=pbcc
 PSMO=$(EDKDSP_API_PATH)/00-pb-firmware/dfu_fp01_1x1.psmo
-OUT=fw_fp01_lift97.h
+OUT=fw_fp01_lift4sa.h fw_fp01_lift4sb.h
 
 .PHONY: clean all
 

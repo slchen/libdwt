@@ -1,3 +1,10 @@
+2011-07-07 David Barina <ibarina@fit.vutbr.cz>
+* libdwt.c firmware/fw_fp01_lift4sa.c firmware/fw_fp01_lift4sb.c: Two firmwares
+for forward and inverse transform. Merged with coefficient scaling.
+
+* libdwt.c (dwt_util_memcpy_stride_s, dwt_util_memcpy_stride_d): Added functions
+for fast memory area copying.
+
 2011-06-23 David Barina <ibarina@fit.vutbr.cz>
 * libdwt.c firmware/fw_fp01_lift97.c: Improved EdkDSP acceleration (two lifting
 steps merged together).

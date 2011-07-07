@@ -21,8 +21,8 @@ directory:
 
 Furthermore, apply ./api/02-mb-petalinux/libbce_step3/xcope.h.patch patch.
 
-Now, you will need PicoBlaze compiler. For library compilation you will also
-need properly configured PetaLinux compiler. You can test it on example
-application in directory ./examples/simple with command:
+Now, you will need properly configured PicoBlaze and PetaLinux compiler for
+library compilation. You can test it on example application in directory
+./examples/simple with command:
 
 make ARCH=microblaze

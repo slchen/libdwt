@@ -11,13 +11,18 @@ clean:
 
 # ARCH=microblaze needs firmware
 ifeq ($(ARCH),microblaze)
+# TODO: FWNAMES=name1 name2
 FWDIR = firmware
-FWNAME = fw_fp01_lift97
+FWNAME1 = fw_fp01_lift4sa
+FWNAME2 = fw_fp01_lift4sb
 
-$(LIBNAME).c: $(FWDIR)/$(FWNAME).h
+$(LIBNAME).c: $(FWDIR)/$(FWNAME1).h $(FWDIR)/$(FWNAME2).h
 
-$(FWDIR)/$(FWNAME).h: $(FWDIR)/$(FWNAME).c
-	$(MAKE) -C $(FWDIR) $(FWNAME).h
+$(FWDIR)/$(FWNAME1).h: $(FWDIR)/$(FWNAME1).c
+	$(MAKE) -C $(FWDIR) $(FWNAME1).h
+
+$(FWDIR)/$(FWNAME2).h: $(FWDIR)/$(FWNAME2).c
+	$(MAKE) -C $(FWDIR) $(FWNAME2).h
 endif
 
 $(LIBNAME).o: $(LIBNAME).c $(LIBNAME).h

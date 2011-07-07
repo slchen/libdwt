@@ -18,4 +18,4 @@
 * 2D DWT: single-loop approach (iteration of horizontal part is immediately fed into iteration of vertical part)
 * memory access through incremented pointers instead of indexed arrays
 * cache optimizations (stride should be prime?)
-* EdkDSP: new http://sp.utia.cz/index.php?ids=results&id=edkdspsdktools
+* use size_t, ssize_t, etc. instead of unsigned int, int, ...

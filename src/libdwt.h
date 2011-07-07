@@ -567,6 +567,11 @@ void dwt_util_set_num_threads(
 /**
  * @brief Enable block-acceleration using workers in UTIA EdkDSP platform.
  *
+ * @param[in] accel_type Means
+ *   @li 0 for C implementation,
+ *   @li 1 for BCE implementation if available (EdkDSP platform),
+ *   @li 2 for empty implementation (for performance measurement).
+ *
  * @warning highly experimental
  */
 void dwt_util_set_accel(
@@ -603,6 +608,16 @@ int dwt_util_save_to_pgm_s(
 	int size_i_big_x,	///< width of nested image (in elements)
 	int size_i_big_y	///< height of nested image (in elements)
 );
+
+/**
+ * @warning highly experimental
+ */
+int dwt_util_get_thread_num();
+
+/**
+ * @warning highly experimental
+ */
+int dwt_util_get_num_threads();
 
 /**
  * @}
