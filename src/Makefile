@@ -1,6 +1,7 @@
 include ../common.mk
 
-LIBNAME=libdwt
+LIBNAME = libdwt
+CFLAGS += -finline-functions -D_POSIX_C_SOURCE=199309L -D_GNU_SOURCE -DPACKAGE_VERSION="$(PACKAGE_VERSION)" -DPACKAGE_NAME="$(PACKAGE_NAME)" -DPACKAGE_STRING="$(PACKAGE_STRING)"
 
 .PHONY: all clean version
 
@@ -9,20 +10,15 @@ all: $(LIBNAME).o
 clean:
 	-$(RM) *.o *.a *.so
 
-# ARCH=microblaze needs firmware
+# ARCH=microblaze needs firmwares to be compiled
 ifeq ($(ARCH),microblaze)
-# TODO: FWNAMES=name1 name2
 FWDIR = firmware
-FWNAME1 = fw_fp01_lift4sa
-FWNAME2 = fw_fp01_lift4sb
+FIRMWARES = fw_fp01_lift4sa fw_fp01_lift4sb
 
-$(LIBNAME).c: $(FWDIR)/$(FWNAME1).h $(FWDIR)/$(FWNAME2).h
+$(LIBNAME).c: $(addprefix $(FWDIR)/,$(addsuffix .h,$(FIRMWARES)))
 
-$(FWDIR)/$(FWNAME1).h: $(FWDIR)/$(FWNAME1).c
-	$(MAKE) -C $(FWDIR) $(FWNAME1).h
-
-$(FWDIR)/$(FWNAME2).h: $(FWDIR)/$(FWNAME2).c
-	$(MAKE) -C $(FWDIR) $(FWNAME2).h
+$(FWDIR)/%.h: $(FWDIR)/%.c
+	$(MAKE) -C $(FWDIR) $(@F)
 endif
 
 $(LIBNAME).o: $(LIBNAME).c $(LIBNAME).h

@@ -1,3 +1,8 @@
+2011-07-19 David Barina <ibarina@fit.vutbr.cz>
+* libdwt.c libdwt.h: Added many timer types (enum dwt_timer_types) and
+dwt_util_clock_available function. Code consolidation. Added experimental
+dwt_util_switch_op function which changes PicoBlaze firmware.
+
 2011-07-07 David Barina <ibarina@fit.vutbr.cz>
 * libdwt.c firmware/fw_fp01_lift4sa.c firmware/fw_fp01_lift4sb.c: Two firmwares
 for forward and inverse transform. Merged with coefficient scaling.

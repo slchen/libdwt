@@ -5,6 +5,7 @@
  */
 #include "libdwt.h"
 
+/** UTIA EdkDSP specific code */
 #ifdef microblaze
 	#include <wal.h>
 	#include <wal_bce_jk.h>
@@ -14,6 +15,12 @@
 
 	#include "firmware/fw_fp01_lift4sa.h"
 	#include "firmware/fw_fp01_lift4sb.h"
+
+	#ifdef NDEBUG
+		#define WAL_CHECK(expr) (expr)
+	#else
+		#define WAL_CHECK(expr) ( (expr) ? abort() : (void)0 )
+	#endif
 #endif
 
 /**
@@ -21,51 +28,126 @@
  */
 #ifdef microblaze
 	#define BANK_SIZE 256
+
+	#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
 #else
 	#define BANK_SIZE 256
 #endif
 
-#ifdef microblaze
-
-#ifdef NDEBUG
-	#define WAL_CHECK(expr) (expr)
-#else
-	#define WAL_CHECK(expr) ( (expr) ? abort() : (void)0 )
-#endif
-
-#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
-
-#endif
-
+/** disable timers when using Par4All tool */
 #if !defined(P4A)
 	#define USE_TIME_CLOCK
 	#define USE_TIME_CLOCK_GETTIME
+	#define USE_TIME_CLOCK_GETTIME_REALTIME
+	#define USE_TIME_CLOCK_GETTIME_MONOTONIC
+	#define USE_TIME_CLOCK_GETTIME_MONOTONIC_RAW
+	#define USE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID
+	#define USE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID
 	#define USE_TIME_TIMES
+	#define USE_TIME_IOCTL_RTC
+	#define USE_TIME_GETTIMEOFDAY
 	#define USE_TIME_GETRUSAGE
+	#define USE_TIME_GETRUSAGE_SELF
+	#define USE_TIME_GETRUSAGE_CHILDREN
+	#define USE_TIME_GETRUSAGE_THREAD
 #endif
 
+/** include LINUX_VERSION_CODE and KERNEL_VERSION macros */
+#if defined(__linux) && !defined(microblaze)
+	#include <linux/version.h>
+#endif
+
+/** define HAVE_TIME_* macros when corresponding timers are available */
 #if defined(_GNU_SOURCE) || defined(_ISOC99_SOURCE) || defined(_POSIX_C_SOURCE)
 	#define HAVE_TIME_CLOCK
 #endif
 
 #if _POSIX_C_SOURCE >= 199309L || _XOPEN_SOURCE >= 500
 	#define HAVE_TIME_CLOCK_GETTIME
+
+	#ifdef _POSIX_C_SOURCE
+		#include <unistd.h> // _POSIX_TIMERS, _POSIX_MONOTONIC_CLOCK, _POSIX_CPUTIME, _POSIX_THREAD_CPUTIME
+
+		#ifdef _POSIX_TIMERS
+			#define HAVE_TIME_CLOCK_GETTIME_REALTIME
+
+			#ifdef _POSIX_MONOTONIC_CLOCK
+				#define HAVE_TIME_CLOCK_GETTIME_MONOTONIC
+			#endif
+
+			#if defined(__linux) && !defined(microblaze)
+				#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,28)
+					// FIXME: probably, at least some glibc version is needed for HAVE_TIME_CLOCK_GETTIME_MONOTONIC_RAW
+				#endif
+			#endif
+
+			#ifdef _POSIX_CPUTIME
+				#define HAVE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID
+			#endif
+
+			#ifdef _POSIX_THREAD_CPUTIME
+				#define HAVE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID
+			#endif
+		#endif
+	#else
+		#define HAVE_TIME_CLOCK_GETTIME_REALTIME
+		#define HAVE_TIME_CLOCK_GETTIME_MONOTONIC
+		#define HAVE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID
+		#define HAVE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID
+	#endif
 #endif
 
 #if defined(_GNU_SOURCE) || defined(_SVID_SOURCE) || defined(_BSD_SOURCE) || defined(_POSIX_C_SOURCE)
 	#define HAVE_TIME_TIMES
 #endif
 
-#if defined(_GNU_SOURCE) || defined(_SVID_SOURCE) || defined(_BSD_SOURCE) || defined(_POSIX_C_SOURCE)
-	#define HAVE_TIME_GETRUSAGE
+#if defined(__linux) && !defined(microblaze)
+	#define HAVE_TIME_IOCTL_RTC
 #endif
 
+#if defined(_GNU_SOURCE) || defined(_SVID_SOURCE) || defined(_BSD_SOURCE) || defined(_POSIX_C_SOURCE)
+	#define HAVE_TIME_GETTIMEOFDAY
+#endif
+
+#if defined(_GNU_SOURCE) || defined(_SVID_SOURCE) || defined(_BSD_SOURCE) || defined(_POSIX_C_SOURCE)
+	#define HAVE_TIME_GETRUSAGE
+	#define HAVE_TIME_GETRUSAGE_SELF
+	#define HAVE_TIME_GETRUSAGE_CHILDREN
+
+	#if defined(__linux) && !defined(microblaze)
+		#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
+			#define HAVE_TIME_GETRUSAGE_THREAD
+		#endif
+	#endif
+#endif
+
+/** define ENABLE_TIME_* macros when they are available and intended for use */
 #if defined(USE_TIME_CLOCK) && defined(HAVE_TIME_CLOCK)
 	#define ENABLE_TIME_CLOCK
 #endif
 
 #if defined(USE_TIME_CLOCK_GETTIME) && defined(HAVE_TIME_CLOCK_GETTIME)
 	#define ENABLE_TIME_CLOCK_GETTIME
+#endif
+
+#if defined(USE_TIME_CLOCK_GETTIME_REALTIME) && defined(HAVE_TIME_CLOCK_GETTIME_REALTIME)
+	#define ENABLE_TIME_CLOCK_GETTIME_REALTIME
+#endif
+
+#if defined(USE_TIME_CLOCK_GETTIME_MONOTONIC) && defined(HAVE_TIME_CLOCK_GETTIME_MONOTONIC)
+	#define ENABLE_TIME_CLOCK_GETTIME_MONOTONIC
+#endif
+
+#if defined(USE_TIME_CLOCK_GETTIME_MONOTONIC_RAW) && defined(HAVE_TIME_CLOCK_GETTIME_MONOTONIC_RAW)
+	#define ENABLE_TIME_CLOCK_GETTIME_MONOTONIC_RAW
+#endif
+
+#if defined(USE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID) && defined(HAVE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID)
+	#define ENABLE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID
+#endif
+
+#if defined(USE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID) && defined(HAVE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID)
+	#define ENABLE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID
 #endif
 
 #if defined(USE_TIME_TIMES) && defined(HAVE_TIME_TIMES)
@@ -76,55 +158,100 @@
 	#define ENABLE_TIME_GETRUSAGE
 #endif
 
-#ifdef ENABLE_TIME_CLOCK_GETTIME
-	#include <time.h> // FIXME: -lrt
+#if defined(USE_TIME_IOCTL_RTC) && defined(HAVE_TIME_IOCTL_RTC)
+	#define ENABLE_TIME_IOCTL_RTC
+#endif
+
+#if defined(USE_TIME_GETTIMEOFDAY) && defined(HAVE_TIME_GETTIMEOFDAY)
+	#define ENABLE_TIME_GETTIMEOFDAY
+#endif
+
+#if defined(USE_TIME_GETRUSAGE_SELF) && defined(HAVE_TIME_GETRUSAGE_SELF)
+	#define ENABLE_TIME_GETRUSAGE_SELF
+#endif
+
+#if defined(USE_TIME_GETRUSAGE_CHILDREN) && defined(HAVE_TIME_GETRUSAGE_CHILDREN)
+	#define ENABLE_TIME_GETRUSAGE_CHILDREN
+#endif
+
+#if defined(USE_TIME_GETRUSAGE_THREAD) && defined(HAVE_TIME_GETRUSAGE_THREAD)
+	#define ENABLE_TIME_GETRUSAGE_THREAD
+#endif
+
+/** include necessary headers for selected timers */
+#if defined(ENABLE_TIME_CLOCK_GETTIME) \
+	|| defined(ENABLE_TIME_CLOCK_GETTIME_REALTIME) \
+	|| defined(ENABLE_TIME_CLOCK_GETTIME_MONOTONIC) \
+	|| defined(ENABLE_TIME_CLOCK_GETTIME_MONOTONIC_RAW) \
+	|| defined(ENABLE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID) \
+	|| defined(ENABLE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID)
+
+	// NOTE: -lrt
+	#include <time.h>  // struct timespec, clock_gettime, CLOCK_REALTIME, CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID, CLOCK_THREAD_CPUTIME_ID
 #endif
 
 #ifdef ENABLE_TIME_CLOCK
-	#include <time.h>
+	#include <time.h> // clock, CLOCKS_PER_SEC
 #endif
 
 #ifdef ENABLE_TIME_TIMES
-	#include <sys/times.h>
-	#include <unistd.h>
+	#include <sys/times.h> // struct tms, times
+	#include <unistd.h> // sysconf, _SC_CLK_TCK
 #endif
 
-#ifdef ENABLE_TIME_GETRUSAGE
-	#include <time.h>
-	#include <unistd.h>
-	#include <sys/resource.h>
-	#include <sys/time.h>
+#ifdef ENABLE_TIME_IOCTL_RTC
+	#include <sys/ioctl.h> // ioctl
+	#include <linux/rtc.h> // struct rtc_time, RTC_RD_TIME
+	#include <fcntl.h> // open, O_NONBLOCK, O_RDONLY
+	#include <unistd.h> // close
+	#include <time.h> // struct tm, mktime
 #endif
 
+#ifdef ENABLE_TIME_GETTIMEOFDAY
+	#include <sys/time.h> // struct timeval, gettimeofday
+#endif
+
+#if defined(ENABLE_TIME_GETRUSAGE) \
+	|| defined(ENABLE_TIME_GETRUSAGE_SELF) \
+	|| defined(ENABLE_TIME_GETRUSAGE_CHILDREN) \
+	|| defined(ENABLE_TIME_GETRUSAGE_THREAD)
+
+	#include <time.h> // struct timespec
+	#include <unistd.h>
+	#include <sys/resource.h> // getrusage, RUSAGE_SELF, struct rusage
+	#include <sys/time.h> // struct timeval, TIMEVAL_TO_TIMESPEC
+#endif
+
+/** other headers */
 #include <assert.h> // assert
 #include <stddef.h> // NULL, size_t
 #include <stdlib.h> // abort, malloc, free
 #include <limits.h> // CHAR_BIT
-#include <math.h> // fabs, fabsf, isnan, isinf, FIXME: -lm
+// NOTE: -lm
+#include <math.h> // fabs, fabsf, isnan, isinf
 #include <stdio.h> // FILE, fopen, fprintf, fclose
 #include <string.h> // memcpy
 
+/** OpenMP header when used */
 #ifdef _OPENMP
 	#include <omp.h>
 #endif
 
+/** UNUSED macro */
 #define UNUSED(expr) do { (void)(expr); } while (0)
 
-#ifndef PACKAGE_NAME
-	#error PACKAGE_NAME is not defined
+/** this PACKAGE_STRING macro must be defined via compiler's command line */
+#ifndef PACKAGE_STRING
+	#error PACKAGE_STRING is not defined
 #endif
 
-#ifndef PACKAGE_VERSION
-	#error PACKAGE_VERSION is not defined
-#endif
-
-#define __Q(x) #x
-#define _Q(x) __Q(x)
-#define LIBDWT_VERSION_STRING _Q(PACKAGE_NAME) " " _Q(PACKAGE_VERSION)
+/** quoting macros */
+#define _QUOTE(x) #x
+#define QUOTE(x) _QUOTE(x)
 
 const char *dwt_util_version()
 {
-	return LIBDWT_VERSION_STRING;
+	return QUOTE(PACKAGE_STRING);
 }
 
 /**
@@ -138,19 +265,39 @@ int dwt_util_global_accel_type[2] = {0};
  * @brief CDF 9/7 lifting scheme constants
  * These constants are found in S. Mallat. A Wavelet Tour of Signal Processing: The Sparse Way (Third Edition). 3rd edition, 2009 on page 370.
  */
+static const int    dwt_cdf97_k_s  =    2;
+static const float  dwt_cdf97_p1_s =    1.58613434342059;
+static const float  dwt_cdf97_u1_s =   -0.0529801185729;
+static const float  dwt_cdf97_p2_s =   -0.8829110755309;
+static const float  dwt_cdf97_u2_s =    0.4435068520439;
+static const float  dwt_cdf97_s1_s =    1.1496043988602;
+static const float  dwt_cdf97_s2_s =  1/1.1496043988602; // FIXME: unnecessary
+
+static const int    dwt_cdf97_k_d  =    2;
 static const double dwt_cdf97_p1_d =    1.58613434342059;
 static const double dwt_cdf97_u1_d =   -0.0529801185729;
 static const double dwt_cdf97_p2_d =   -0.8829110755309;
 static const double dwt_cdf97_u2_d =    0.4435068520439;
 static const double dwt_cdf97_s1_d =    1.1496043988602;
-static const double dwt_cdf97_s2_d =  1/1.1496043988602; // TODO: unnecessary
+static const double dwt_cdf97_s2_d =  1/1.1496043988602; // FIXME: unnecessary
+/**@}*/
 
-static const float dwt_cdf97_p1_s =    1.58613434342059;
-static const float dwt_cdf97_u1_s =   -0.0529801185729;
-static const float dwt_cdf97_p2_s =   -0.8829110755309;
-static const float dwt_cdf97_u2_s =    0.4435068520439;
-static const float dwt_cdf97_s1_s =    1.1496043988602;
-static const float dwt_cdf97_s2_s =  1/1.1496043988602; // TODO: unnecessary
+/**
+ * @{
+ * @brief CDF 5/3 lifting scheme constants
+ * These constants are found in S. Mallat. A Wavelet Tour of Signal Processing: The Sparse Way (Third Edition). 3rd edition, 2009 on page 369.
+ */
+static const int    dwt_cdf53_k_s  =    1;
+static const float  dwt_cdf53_p1_s =    0.5;
+static const float  dwt_cdf53_u1_s =    0.25;
+static const float  dwt_cdf53_s1_s =    1.41421356237309504880;
+static const float  dwt_cdf53_s2_s =    0.70710678118654752440; // FIXME: unnecessary
+
+static const int    dwt_cdf53_k_d  =    1;
+static const double dwt_cdf53_p1_d =    0.5;
+static const double dwt_cdf53_u1_d =    0.25;
+static const double dwt_cdf53_s1_d =    1.41421356237309504880;
+static const double dwt_cdf53_s2_d =    0.70710678118654752440; // FIXME: unnecessary
 /**@}*/
 
 /**
@@ -160,7 +307,7 @@ static
 int pow2_ceil_log2(
 	int x)
 {
-	assert(x > 0);
+	assert( x > 0 );
 
 	x--;
 
@@ -273,7 +420,9 @@ int max(
 	return a>b ? a : b;
 }
 
-/** returns 1 if x is odd, 0 otherwise */
+/**
+ * @brief returns 1 if x is odd, 0 otherwise; works also for negative numbers
+ */
 static
 int is_odd(
 	int x)
@@ -281,7 +430,9 @@ int is_odd(
 	return x&1;
 }
 
-/** returns 1 if x is even, 0 otherwise */
+/**
+ * @brief returns 1 if x is even, 0 otherwise; works also for negative numbers
+ */
 static
 int is_even(
 	int x)
@@ -289,7 +440,9 @@ int is_even(
 	return 1&~x;
 }
 
-/** returns closest even integer not larger than x */
+/**
+ * @brief returns closest even integer not larger than x; works also for negative numbers
+ */
 static
 int to_even(
 	int x)
@@ -297,7 +450,9 @@ int to_even(
 	return x&~1;
 }
 
-/** returns closest odd integer not larger than x */
+/**
+ * @brief returns closest odd integer not larger than x; works also for negative numbers
+ */
 static
 int to_odd(
 	int x)
@@ -411,7 +566,7 @@ void *dwt_util_memcpy_stride_s(
 	size_t n		///< Number of floats to be copied, not number of bytes.
 	)
 {
-	// TODO: assert
+	assert( NULL != dst && NULL != src );
 
 	const size_t size = sizeof(float);
 
@@ -453,7 +608,7 @@ void *dwt_util_memcpy_stride_d(
 	size_t n		///< Number of doubles to be copied, not number of bytes.
 	)
 {
-	// TODO: assert
+	assert( NULL != dst && NULL != src );
 
 	const size_t size = sizeof(double);
 
@@ -511,7 +666,7 @@ void dwt_util_test_image_fill_d(
 	int size_i_big_y,
 	int rand)
 {
-	// TODO: assert
+	assert( NULL != ptr );
 
 	for(int y = 0; y < size_i_big_y; y++)
 		for(int x = 0; x < size_i_big_x; x++)
@@ -526,7 +681,7 @@ void dwt_util_test_image_fill_s(
 	int size_i_big_y,
 	int rand)
 {
-	// TODO: assert
+	assert( NULL != ptr );
 
 	for(int y = 0; y < size_i_big_y; y++)
 		for(int x = 0; x < size_i_big_x; x++)
@@ -540,7 +695,7 @@ void dwt_util_alloc_image(
 	int size_o_big_x,
 	int size_o_big_y)
 {
-	// TODO: assert
+	assert( NULL != pptr );
 
 	UNUSED(stride_y);
 	UNUSED(size_o_big_x);
@@ -553,7 +708,7 @@ void dwt_util_alloc_image(
 void dwt_util_free_image(
 	void **pptr)
 {
-	// TODO: assert
+	assert( pptr != NULL );
 
 	free(*pptr);
 	*pptr = NULL;
@@ -567,7 +722,7 @@ int dwt_util_compare_d(
 	int size_i_big_x,
 	int size_i_big_y)
 {
-	// TODO: assert
+	assert( ptr1 != NULL && ptr2 != NULL && size_i_big_x >= 0 && size_i_big_y >= 0 );
 
 	const double eps = 1e-6;
 
@@ -595,7 +750,7 @@ int dwt_util_compare_s(
 	int size_i_big_x,
 	int size_i_big_y)
 {
-	// TODO: assert
+	assert( ptr1 != NULL && ptr2 != NULL && size_i_big_x >= 0 && size_i_big_y >= 0 );
 
 	const float eps = 1e-3;
 
@@ -717,7 +872,7 @@ void dwt_cdf97_f_ex_stride_d(
 	int N,
 	int stride)
 {
-	assert(!( N < 0 || NULL == src || NULL == dst_l || NULL == dst_h || NULL == tmp || 0 == stride ));
+	assert( N >= 0 && NULL != src && NULL != dst_l && NULL != dst_h && NULL != tmp && 0 != stride );
 
 	// fix for small N
 	if(N < 2)
@@ -791,7 +946,7 @@ void accel_lift_op4s_main_s(
 	float zeta,
 	int scaling)
 {
-	assert(steps >= 0);
+	assert( steps >= 0 );
 
 	if( scaling < 0 )
 	{
@@ -853,7 +1008,7 @@ void accel_lift_op4s_main_pb_s(
 	float zeta,
 	int scaling)
 {
-	assert(steps >= 0);
+	assert( steps >= 0 );
 
 #ifdef microblaze
 	UNUSED(scaling);
@@ -885,7 +1040,7 @@ void accel_lift_op4s_prolog_s(
 	float zeta,
 	int scaling)
 {
-	assert(N-off >= 4);
+	assert( N-off >= 4 );
 
 	if(off)
 	{
@@ -937,10 +1092,10 @@ void accel_lift_op4s_prolog_s(
 		arr[0] += 2*gamma*(arr[1]);
 	
 		// delta
-		// není
+		// none
 
 		// scaling
-		// není
+		// none
 	}
 }
 
@@ -956,7 +1111,7 @@ void accel_lift_op4s_epilog_s(
 	float zeta,
 	int scaling)
 {
-	assert(N-off >= 4);
+	assert( N-off >= 4 );
 
 	if( is_even(N-off) )
 	{
@@ -967,7 +1122,7 @@ void accel_lift_op4s_epilog_s(
 		}
 
 		// alpha
-		// není
+		// none
 
 		// beta
 		arr[N-1] += 2*beta*(arr[N-2]);
@@ -1039,7 +1194,7 @@ void accel_lift_op4s_short_s(
 	float zeta,
 	int scaling)
 {
-	assert(N-off < 4);
+	assert( N-off < 4 );
 
 	if(off)
 	{
@@ -1209,9 +1364,8 @@ void accel_lift_op4s_s(
 	float zeta,
 	int scaling)
 {
-	assert(len >= 2);
-
-	assert(0 == off || 1 == off);
+	assert( len >= 2 );
+	assert( 0 == off || 1 == off );
 
 	if( len-off < 4 )
 	{
@@ -1269,7 +1423,7 @@ void dwt_cdf97_f_ex_stride_s(
 	int N,
 	int stride)
 {
-	assert(!( N < 0 || NULL == src || NULL == dst_l || NULL == dst_h || NULL == tmp || 0 == stride ));
+	assert( N >= 0 && NULL != src && NULL != dst_l && NULL != dst_h && NULL != tmp && 0 != stride );
 
 	// fix for small N
 	if(N < 2)
@@ -1331,7 +1485,7 @@ void dwt_cdf97_i_ex_stride_d(
 	int N,
 	int stride)
 {
-	assert(!( N < 0 || NULL == src_l || NULL == src_h || NULL == dst || NULL == tmp || 0 == stride ));
+	assert( N >= 0 && NULL != src_l && NULL != src_h && NULL != dst && NULL != tmp && 0 != stride );
 
 	// fix for small N
 	if(N < 2)
@@ -1391,7 +1545,7 @@ void dwt_cdf97_i_ex_stride_s(
 	int N,
 	int stride)
 {
-	assert(!( N < 0 || NULL == src_l || NULL == src_h || NULL == dst || NULL == tmp || 0 == stride ));
+	assert( N >= 0 && NULL != src_l && NULL != src_h && NULL != dst && NULL != tmp && 0 != stride );
 
 	// fix for small N
 	if(N < 2)
@@ -1453,7 +1607,7 @@ void dwt_zero_padding_f_stride_d(
 	int N_dst_H,
 	int stride)
 {
-	assert(!( N < 0 || N_dst_L < 0 || N_dst_H < 0 || 0 != ((N_dst_L-N_dst_H)&~1) || NULL == dst_l || NULL == dst_h || 0 == stride ));
+	assert( N >= 0 && N_dst_L >= 0 && N_dst_H >= 0 && 0 == ((N_dst_L-N_dst_H)&~1) && NULL != dst_l && NULL != dst_h && 0 != stride ); // FIXME: 0 == ((N_dst_L-N_dst_H)&~1)
 
 	if(N_dst_L || N_dst_H)
 	{
@@ -1472,7 +1626,7 @@ void dwt_zero_padding_f_stride_s(
 	int N_dst_H,
 	int stride)
 {
-	assert(!( N < 0 || N_dst_L < 0 || N_dst_H < 0 || 0 != ((N_dst_L-N_dst_H)&~1) || NULL == dst_l || NULL == dst_h || 0 == stride ));
+	assert( N >= 0 && N_dst_L >= 0 && N_dst_H >= 0 && 0 == ((N_dst_L-N_dst_H)&~1) && NULL != dst_l && NULL != dst_h && 0 != stride ); // FIXME: 0 == ((N_dst_L-N_dst_H)&~1)
 
 	if(N_dst_L || N_dst_H)
 	{
@@ -1515,7 +1669,7 @@ void dwt_zero_padding_i_stride_d(
 	int N_dst,
 	int stride)
 {
-	assert(!( N < 0 || N_dst < 0 || NULL == dst_l || 0 == stride ));
+	assert( N >= 0 && N_dst >= 0 && NULL != dst_l && 0 != stride );
 
 	const double zero = 0;
 
@@ -1533,7 +1687,7 @@ void dwt_zero_padding_i_stride_s(
 	int N_dst,
 	int stride)
 {
-	assert(!( N < 0 || N_dst < 0 || NULL == dst_l || 0 == stride ));
+	assert( N >= 0 && N_dst >= 0 && NULL != dst_l && 0 != stride );
 
 	const float zero = 0;
 
@@ -1553,7 +1707,6 @@ const unsigned int DWT_OP_LIFT4SA = 0;
 const unsigned int DWT_OP_LIFT4SB = 1;
 #endif
 
-// TODO: export due to usage of stand-alone 1D transform
 void dwt_util_switch_op(
 	unsigned int pbid)
 {
@@ -1665,7 +1818,7 @@ void dwt_cdf97_2f_s(
 	int decompose_one,
 	int zero_padding)
 {
-	dwt_util_switch_op(DWT_OP_LIFT4SA);
+	dwt_util_switch_op(DWT_OP_LIFT4SA); // FIXME
 
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
@@ -1827,7 +1980,7 @@ void dwt_cdf97_2i_s(
 	int decompose_one,
 	int zero_padding)
 {
-	dwt_util_switch_op(DWT_OP_LIFT4SB);
+	dwt_util_switch_op(DWT_OP_LIFT4SB); // FIXME
 
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
@@ -1908,6 +2061,12 @@ int dwt_util_clock_autoselect()
 #ifdef ENABLE_TIME_GETRUSAGE
 	return DWT_TIME_GETRUSAGE;
 #endif
+#ifdef ENABLE_TIME_GETTIMEOFDAY
+	return DWT_TIME_GETTIMEOFDAY;
+#endif
+#ifdef ENABLE_TIME_IOCTL_RTC
+	return DWT_TIME_IOCTL_RTC;
+#endif
 	// fallback
 	return DWT_TIME_AUTOSELECT;
 }
@@ -1931,6 +2090,51 @@ dwt_clock_t dwt_util_get_frequency(
 #endif
 		}
 		break;
+		case DWT_TIME_CLOCK_GETTIME_REALTIME:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_REALTIME
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_MONOTONIC:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_MONOTONIC
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_MONOTONIC_RAW:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_MONOTONIC_RAW
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
 		case DWT_TIME_CLOCK:
 		{
 #ifdef ENABLE_TIME_CLOCK
@@ -1943,9 +2147,7 @@ dwt_clock_t dwt_util_get_frequency(
 		case DWT_TIME_TIMES:
 		{
 #ifdef ENABLE_TIME_TIMES
-			long ticks_per_sec = sysconf(_SC_CLK_TCK);
-
-			return_freq = (dwt_clock_t)ticks_per_sec;
+			return_freq = (dwt_clock_t)sysconf(_SC_CLK_TCK);
 #else
 			abort();
 #endif
@@ -1954,6 +2156,51 @@ dwt_clock_t dwt_util_get_frequency(
 		case DWT_TIME_GETRUSAGE:
 		{
 #ifdef ENABLE_TIME_GETRUSAGE
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_IOCTL_RTC:
+		{
+#ifdef ENABLE_TIME_IOCTL_RTC
+			return_freq = (dwt_clock_t)1;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETTIMEOFDAY:
+		{
+#ifdef ENABLE_TIME_GETTIMEOFDAY
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_SELF:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_SELF
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_CHILDREN:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_CHILDREN
+			return_freq = (dwt_clock_t)1000000000;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_THREAD:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_THREAD
 			return_freq = (dwt_clock_t)1000000000;
 #else
 			abort();
@@ -1980,18 +2227,94 @@ dwt_clock_t dwt_util_get_clock(
 		case DWT_TIME_CLOCK_GETTIME:
 		{
 #ifdef ENABLE_TIME_CLOCK_GETTIME
-			clockid_t clk_id = /*CLOCK_THREAD_CPUTIME_ID*/ /*CLOCK_PROCESS_CPUTIME_ID*/ CLOCK_REALTIME; // FIXME
-
-			dwt_clock_t time;
+			clockid_t clk_id = CLOCK_REALTIME;
 
 			struct timespec ts;
 
 			if(clock_gettime(clk_id, &ts))
 				abort();
 
-			time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_REALTIME:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_REALTIME
+			clockid_t clk_id = CLOCK_REALTIME;
 
-			return_time = (dwt_clock_t)time;
+			struct timespec ts;
+
+			if(clock_gettime(clk_id, &ts))
+				abort();
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_MONOTONIC:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_MONOTONIC
+			clockid_t clk_id = CLOCK_MONOTONIC;
+
+			struct timespec ts;
+
+			if(clock_gettime(clk_id, &ts))
+				abort();
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_MONOTONIC_RAW:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_MONOTONIC_RAW
+			clockid_t clk_id = CLOCK_MONOTONIC_RAW;
+
+			struct timespec ts;
+
+			if(clock_gettime(clk_id, &ts))
+				abort();
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID
+			clockid_t clk_id = CLOCK_PROCESS_CPUTIME_ID;
+
+			struct timespec ts;
+
+			if(clock_gettime(clk_id, &ts))
+				abort();
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID
+			clockid_t clk_id = CLOCK_THREAD_CPUTIME_ID;
+
+			struct timespec ts;
+
+			if(clock_gettime(clk_id, &ts))
+				abort();
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 #else
 			abort();
 #endif
@@ -2013,15 +2336,12 @@ dwt_clock_t dwt_util_get_clock(
 		case DWT_TIME_TIMES:
 		{
 #ifdef ENABLE_TIME_TIMES
-			clock_t time;
-
 			struct tms tms_i;
 
 			if( (clock_t)-1 == times(&tms_i) )
 				abort();
-			time = tms_i.tms_utime;
 
-			return_time = (dwt_clock_t)time;
+			return_time = (dwt_clock_t)tms_i.tms_utime;
 #else
 			abort();
 #endif
@@ -2030,22 +2350,116 @@ dwt_clock_t dwt_util_get_clock(
 		case DWT_TIME_GETRUSAGE:
 		{
 #ifdef ENABLE_TIME_GETRUSAGE
-			int who = RUSAGE_SELF /*RUSAGE_THREAD*/; // FIXME
+			int who = RUSAGE_SELF;
 
-			dwt_clock_t time;
-
-			struct timeval tv;
 			struct rusage rusage_i;
 			struct timespec ts;
 
 			if( -1 == getrusage(who, &rusage_i) )
 				abort();
-			tv = rusage_i.ru_utime;
-			TIMEVAL_TO_TIMESPEC(&tv, &ts);
 
-			time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+			TIMEVAL_TO_TIMESPEC(&rusage_i.ru_utime, &ts);
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_IOCTL_RTC:
+		{
+#ifdef ENABLE_TIME_IOCTL_RTC
+			int fd = open("/dev/rtc", O_RDONLY|O_NONBLOCK);
+			if( -1 == fd )
+				abort();
+
+			struct rtc_time rtc_time_i;
+
+			if( -1 == ioctl(fd, RTC_RD_TIME, &rtc_time_i) )
+				abort();
+
+			if( -1 == close(fd) )
+				abort();
+
+			time_t time = mktime( (struct tm *)&rtc_time_i );
+			if( (time_t)-1 == time )
+				abort();
 
 			return_time = (dwt_clock_t)time;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETTIMEOFDAY:
+		{
+#ifdef ENABLE_TIME_GETTIMEOFDAY
+			struct timeval tv;
+			struct timespec ts;
+
+			if( -1 == gettimeofday(&tv, NULL) )
+				abort();
+
+			TIMEVAL_TO_TIMESPEC(&tv, &ts);
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_SELF:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_SELF
+			int who = RUSAGE_SELF;
+
+			struct rusage rusage_i;
+			struct timespec ts;
+
+			if( -1 == getrusage(who, &rusage_i) )
+				abort();
+
+			TIMEVAL_TO_TIMESPEC(&rusage_i.ru_utime, &ts);
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_CHILDREN:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_CHILDREN
+			int who = RUSAGE_CHILDREN;
+
+			struct rusage rusage_i;
+			struct timespec ts;
+
+			if( -1 == getrusage(who, &rusage_i) )
+				abort();
+
+			TIMEVAL_TO_TIMESPEC(&rusage_i.ru_utime, &ts);
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+			abort();
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_THREAD:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_THREAD
+			int who = RUSAGE_THREAD;
+
+			struct rusage rusage_i;
+			struct timespec ts;
+
+			if( -1 == getrusage(who, &rusage_i) )
+				abort();
+
+			TIMEVAL_TO_TIMESPEC(&rusage_i.ru_utime, &ts);
+
+			return_time = (dwt_clock_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 #else
 			abort();
 #endif
@@ -2056,6 +2470,122 @@ dwt_clock_t dwt_util_get_clock(
 	}
 
 	return return_time;
+}
+
+int dwt_util_clock_available(
+	int type)
+{
+	switch(type)
+	{
+		case DWT_TIME_CLOCK_GETTIME:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME
+			return 0;
+#endif
+		}
+		break;
+
+		case DWT_TIME_CLOCK_GETTIME_REALTIME:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_REALTIME
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_MONOTONIC:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_MONOTONIC
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_MONOTONIC_RAW:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_MONOTONIC_RAW
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID:
+		{
+#ifdef ENABLE_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_CLOCK:
+		{
+#ifdef ENABLE_TIME_CLOCK
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_TIMES:
+		{
+#ifdef ENABLE_TIME_TIMES
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_SELF:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_SELF
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_CHILDREN:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_CHILDREN
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_GETRUSAGE_THREAD:
+		{
+#ifdef ENABLE_TIME_GETRUSAGE_THREAD
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_GETTIMEOFDAY:
+		{
+#ifdef ENABLE_TIME_GETTIMEOFDAY
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_IOCTL_RTC:
+		{
+#ifdef ENABLE_TIME_IOCTL_RTC
+			return 0;
+#endif
+		}
+		break;
+		case DWT_TIME_AUTOSELECT:
+		{
+#ifdef ENABLE_TIME_AUTOSELECT
+			return 0;
+#endif
+		}
+		break;
+	}
+
+	return -1;
 }
 
 int dwt_util_get_thread_num()
@@ -2079,6 +2609,8 @@ int dwt_util_get_max_threads()
 void dwt_util_set_num_threads(
 	int num_threads)
 {
+	assert( num_threads > 0 );
+
 #ifdef _OPENMP
 	omp_set_num_threads(num_threads);
 #else
@@ -2132,6 +2664,8 @@ int dwt_util_save_to_pgm_s(
 	int size_i_big_x,
 	int size_i_big_y)
 {
+	assert( max_value != 0.0f && size_i_big_x >= 0 && size_i_big_y >= 0 );
+
 	const int target_max_value = 255;
 
 	FILE *file = fopen(filename, "w");

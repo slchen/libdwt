@@ -6,13 +6,6 @@
 #ifndef LIBDWT_H
 #define LIBDWT_H
 
-#ifndef _POSIX_C_SOURCE
-	#define _POSIX_C_SOURCE 199309L
-#endif
-#ifndef _GNU_SOURCE
-	#define _GNU_SOURCE
-#endif
-
 #include <stdint.h> // int64_t
 
 #ifdef __cplusplus
@@ -387,8 +380,6 @@ int dwt_util_pow2_ceil_log2(
  * @brief Fill test image.
  *
  * This function works with double precision floating point numbers (i.e. double data type).
- *
- * @warning experimental
  */
 void dwt_util_test_image_fill_d(
 	void *ptr,		///< pointer to beginning of image data
@@ -403,8 +394,6 @@ void dwt_util_test_image_fill_d(
  * @brief Fill test image.
  *
  * This function works with single precision floating point numbers (i.e. float data type).
- *
- * @warning experimental
  */
 void dwt_util_test_image_fill_s(
 	void *ptr,		///< pointer to beginning of image data
@@ -419,8 +408,6 @@ void dwt_util_test_image_fill_s(
  * @brief Allocate image.
  *
  * Allocates memory for image of given sizes.
- *
- * @warning experimental
  */
 void dwt_util_alloc_image(
 	void **pptr,		///< place pointer to newly allocated data here
@@ -434,8 +421,6 @@ void dwt_util_alloc_image(
  * @brief Free image.
  *
  * Frees memory allocated by @ref dwt_util_alloc_image.
- *
- * @warning experimental
  */
 void dwt_util_free_image(
 	void **pptr		///< pointer to data that will be released
@@ -446,8 +431,6 @@ void dwt_util_free_image(
  *
  * This function compares two images and returns zero value if they equal.
  * This function works with double precision floating point numbers (i.e. double data type).
- *
- * @warning experimental
  */
 int dwt_util_compare_d(
 	void *ptr1,		///< pointer to data of first image
@@ -463,8 +446,6 @@ int dwt_util_compare_d(
  *
  * This function compares two images and returns zero value if they equal.
  * This function works with single precision floating point numbers (i.e. float data type).
- *
- * @warning experimental
  */
 int dwt_util_compare_s(
 	void *ptr1,		///< pointer to data of first image
@@ -483,25 +464,40 @@ const char *dwt_util_version();
 /**
  * @brief Timer types.
  *
- * Timer sources used in @ref dwt_util_get_frequency and @ref dwt_util_get_clock functions.
- *
- * @warning experimental
+ * Timer sources used in @ref dwt_util_clock_available, @ref dwt_util_get_frequency and @ref dwt_util_get_clock functions.
  */
-enum
+enum dwt_timer_types
 {
-	DWT_TIME_CLOCK_GETTIME,		///< use clock_gettime() function from time.h; defined by POSIX
-	DWT_TIME_CLOCK,			///< use clock() function from time.h; defined since C89 and by POSIX
-	DWT_TIME_TIMES,			///< use times() function from sys/times.h; defined by POSIX
-	DWT_TIME_GETRUSAGE,		///< use getrusage() function from sys/resource.h; defined by POSIX
-	DWT_TIME_AUTOSELECT		///< autoselect appropriate timer
+	DWT_TIME_CLOCK_GETTIME,				///< use clock_gettime() function from <time.h>; defined by POSIX; with appropriate argument
+	DWT_TIME_CLOCK_GETTIME_REALTIME,		///< use clock_gettime() function from <time.h>; defined by POSIX; with argument CLOCK_REALTIME
+	DWT_TIME_CLOCK_GETTIME_MONOTONIC,		///< use clock_gettime() function from <time.h>; defined by POSIX; with argument CLOCK_MONOTONIC
+	DWT_TIME_CLOCK_GETTIME_MONOTONIC_RAW,		///< use clock_gettime() function from <time.h>; defined by POSIX; with argument CLOCK_MONOTONIC_RAW
+	DWT_TIME_CLOCK_GETTIME_PROCESS_CPUTIME_ID,	///< use clock_gettime() function from <time.h>; defined by POSIX; with argument CLOCK_PROCESS_CPUTIME_ID
+	DWT_TIME_CLOCK_GETTIME_THREAD_CPUTIME_ID,	///< use clock_gettime() function from <time.h>; defined by POSIX; with argument CLOCK_THREAD_CPUTIME_ID
+	DWT_TIME_CLOCK,					///< use clock() function from <time.h>; defined since C89 and by POSIX
+	DWT_TIME_TIMES,					///< use times() function from <sys/times.h>; defined by POSIX; only user time is considered
+	DWT_TIME_GETRUSAGE,				///< use getrusage() function from <sys/resource.h>; defined by POSIX; with appropriate argument
+	DWT_TIME_GETRUSAGE_SELF,			///< use getrusage() function from <sys/resource.h>; defined by POSIX; with argument RUSAGE_SELF
+	DWT_TIME_GETRUSAGE_CHILDREN,			///< use getrusage() function from <sys/resource.h>; defined by POSIX; with argument RUSAGE_CHILDREN
+	DWT_TIME_GETRUSAGE_THREAD,			///< use getrusage() function from <sys/resource.h>; defined by POSIX; with argument RUSAGE_THREAD
+	DWT_TIME_GETTIMEOFDAY,				///< use gettimeofday() function from <sys/time.h>; defined by POSIX
+	DWT_TIME_IOCTL_RTC,				///< use ioctl() function from <sys/ioctl.h>; with argument RTC_RD_TIME; available on Linux except EdkDSP platform
+	DWT_TIME_AUTOSELECT				///< autoselect appropriate timer
 };
+
+/**
+ * @brief Indicate if the given clock type is available.
+ *
+ * @returns Return 0 if the clock @p type is available, or -1 if is not.
+ */
+int dwt_util_clock_available(
+	int type		///< timer type, see @ref dwt_timer_types
+);
 
 /**
  * @brief Integer type for storing time or number of clock ticks.
  *
  * This type is used by @ref dwt_util_get_frequency and @ref dwt_util_get_clock functions.
- *
- * @warning experimental
  */
 typedef int64_t dwt_clock_t;
 
@@ -509,8 +505,6 @@ typedef int64_t dwt_clock_t;
  * @brief Autoselect appropriate timer.
  *
  * Try to select appropriate timer according to system dispositions.
- *
- * @warning experimental
  */
 int dwt_util_clock_autoselect();
 
@@ -518,11 +512,10 @@ int dwt_util_clock_autoselect();
  * @brief Number of ticks per second.
  *
  * This function returns a number of clock ticks per second according to indicated clock source type.
- *
- * @warning experimental
  */
 dwt_clock_t dwt_util_get_frequency(
-	int type);
+	int type		///< timer type, see @ref dwt_timer_types
+);
 
 /**
  * @brief Number of ticks from certain event.
@@ -539,11 +532,10 @@ dwt_clock_t dwt_util_get_frequency(
  *
  * double elapsed_time_in_seconds = (stop - start)/(double)dwt_util_get_frequency(type);
  * @endcode
- *
- * @warning experimental
  */
 dwt_clock_t dwt_util_get_clock(
-	int type);
+	int type		///< timer type, see @ref dwt_timer_types
+);
 
 /**
  * @brief Wrapper to @p omp_get_max_threads function.
@@ -580,14 +572,14 @@ void dwt_util_set_accel(
 /**
  * @brief Initialize worker in UTIA EdkDSP platform.
  *
- * @warning highly experimental
+ * @warning experimental
  */
 void dwt_util_init();
 
 /**
  * @brief Release all resources allocated in @ref dwt_util_init function.
  *
- * @warning highly experimental
+ * @warning experimental
  */
 void dwt_util_finish();
 
@@ -597,7 +589,7 @@ void dwt_util_finish();
  * See <a href="http://netpbm.sourceforge.net/">the home page for Netpbm</a>.
  * This function works with single precision floating point numbers (i.e. float data type).
  *
- * @warning highly experimental
+ * @warning experimental
  */
 int dwt_util_save_to_pgm_s(
 	const char *filename,	///< target file name, e.g. "output.pgm"
@@ -610,14 +602,30 @@ int dwt_util_save_to_pgm_s(
 );
 
 /**
- * @warning highly experimental
+ * @brief Wrapper to @p omp_get_thread_num function.
+ *
+ * @warning experimental
  */
 int dwt_util_get_thread_num();
 
 /**
- * @warning highly experimental
+ * @brief Wrapper to @p omp_get_num_threads function.
+ *
+ * @warning experimental
  */
 int dwt_util_get_num_threads();
+
+/**
+ * @brief Set PicoBlaze operation.
+ *
+ * Function changes active PicoBlaze firmware. This makes sense only on UTIA
+ * EdkDSP platform.
+ *
+ * @warning highly experimental
+ */
+void dwt_util_switch_op(
+	unsigned int pbid	///< identifier of PicoBlaze operation
+);
 
 /**
  * @}

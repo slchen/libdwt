@@ -19,6 +19,7 @@ help:
 	@echo "To print version type 'make version'."
 	@echo "To make an example application type 'make' in example folder."
 	@echo "If you want to build any binary for another architecture type 'make ARCH=<arch>', where <arch> is one of 'x86_64' (for PC) or 'microblaze' (for EdkDSP platform)."
+	@echo "For release build type 'make BUILD=release'."
 	@echo "In case of any problems contact $(AUTHORS)."
 
 include $(ROOT)/arch.mk
