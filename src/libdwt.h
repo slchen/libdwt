@@ -616,6 +616,17 @@ int dwt_util_get_thread_num();
 int dwt_util_get_num_threads();
 
 /**
+ * @brief Identifier of PicoBlaze operation.
+ *
+ * @warning highly experimental
+ */
+enum dwt_op
+{
+	DWT_OP_LIFT4SA,		///< CDF 9/7 wavelet, forward transform
+	DWT_OP_LIFT4SB,		///< CDF 9/7 wavelet, inverse transform
+};
+
+/**
  * @brief Set PicoBlaze operation.
  *
  * Function changes active PicoBlaze firmware. This makes sense only on UTIA
@@ -624,7 +635,7 @@ int dwt_util_get_num_threads();
  * @warning highly experimental
  */
 void dwt_util_switch_op(
-	unsigned int pbid	///< identifier of PicoBlaze operation
+	enum dwt_op op		///< identifier of PicoBlaze operation
 );
 
 /**

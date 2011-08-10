@@ -1015,10 +1015,7 @@ void accel_lift_op4s_main_pb_s(
 
 	assert( steps <= (BANK_SIZE-4)/2 );
 
-	const float coeffs[11] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta};
-
 	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, 2*steps+4) );
-	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), coeffs, 11) );
 	WAL_CHECK( wal_mb2pb(worker, steps) );
 	WAL_CHECK( wal_pb2mb(worker, NULL) );
 	WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, 2*steps+4) );
@@ -1394,7 +1391,7 @@ void accel_lift_op4s_s(
 				const int steps = (off + inner_len - left)/2;
 
 				// TODO: here should be a test if last block should be accelerated on PicoBlaze or rather computed on MicroBlaze
-				if( steps > 50 )
+				if( steps > 96 )
 					accel_lift_op4s_main_pb_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
 				else
 					accel_lift_op4s_main_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
@@ -1699,16 +1696,8 @@ void dwt_zero_padding_i_stride_s(
 		N_dst - N);
 }
 
-#ifdef microblaze
-const unsigned int DWT_OP_LIFT4SA = WAL_PBID_P0;
-const unsigned int DWT_OP_LIFT4SB = WAL_PBID_P1;
-#else
-const unsigned int DWT_OP_LIFT4SA = 0;
-const unsigned int DWT_OP_LIFT4SB = 1;
-#endif
-
 void dwt_util_switch_op(
-	unsigned int pbid)
+	enum dwt_op op)
 {
 #ifdef microblaze
 	WAL_CHECK( wal_mb2pb(worker, 0) );
@@ -1717,9 +1706,43 @@ void dwt_util_switch_op(
 
 	WAL_CHECK( wal_reset_worker(worker) );
 
-	WAL_CHECK( wal_start_operation(worker, pbid) );
+	switch(op)
+	{
+		case DWT_OP_LIFT4SA:
+		{
+			WAL_CHECK( wal_start_operation(worker, WAL_PBID_P0) );
+
+			float alpha = -dwt_cdf97_p1_s,
+				beta = dwt_cdf97_u1_s,
+				gamma = -dwt_cdf97_p2_s,
+				delta = dwt_cdf97_u2_s,
+				zeta = dwt_cdf97_s1_s;
+
+			const float coeffs[11] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta};
+
+			WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), coeffs, 11) );
+		}
+		break;
+		case DWT_OP_LIFT4SB:
+		{
+			WAL_CHECK( wal_start_operation(worker, WAL_PBID_P1) );
+
+			float alpha = -dwt_cdf97_u2_s,
+				beta = dwt_cdf97_p2_s,
+				gamma = -dwt_cdf97_u1_s,
+				delta = dwt_cdf97_p1_s,
+				zeta = dwt_cdf97_s1_s;
+
+			const float coeffs[11] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta};
+
+			WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), coeffs, 11) );
+		}
+		break;
+		default:
+			abort();
+	}
 #else
-	UNUSED(pbid);
+	UNUSED(op);
 #endif
 }
 

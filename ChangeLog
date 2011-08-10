@@ -1,3 +1,6 @@
+2011-08-10 David Barina <ibarina@fit.vutbr.cz>
+* libdwt.c libdwt.h: EdkDSP implementation speed-up.
+
 2011-07-19 David Barina <ibarina@fit.vutbr.cz>
 * libdwt.c libdwt.h: Added many timer types (enum dwt_timer_types) and
 dwt_util_clock_available function. Code consolidation. Added experimental
