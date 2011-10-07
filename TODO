@@ -1,6 +1,6 @@
 * unit tests
 * SIMD support
-* more wavelets (CDF 5/3, Haar)
+* more wavelets (Haar)
 * more data types (int)
 * performance measurement
 * more example applications
@@ -20,3 +20,4 @@
 * cache optimizations (stride should be prime?)
 * use size_t, ssize_t, etc. instead of unsigned int, int, ...
 * EdkDSP: upload new data when waiting for preceding operation (use memory banks 0/1)
+* 3D data support

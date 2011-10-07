@@ -1,3 +1,6 @@
+2011-10-07 David Barina <ibarina@fit.vutbr.cz>
+* libdwt.c libdwt.h: Added support for CDF 5/3 wavelet.
+
 2011-08-10 David Barina <ibarina@fit.vutbr.cz>
 * libdwt.c libdwt.h: EdkDSP implementation speed-up.
 
