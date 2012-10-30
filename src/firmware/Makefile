@@ -1,7 +1,9 @@
-EDKDSP_API_PATH=../../api
-CC=pbcc
-PSMO=$(EDKDSP_API_PATH)/00-pb-firmware/dfu_fp01_1x1.psmo
-OUT=fw_fp01_lift4sa.h fw_fp01_lift4sb.h
+API_PATH=../../api
+
+OUT=fw_bce2_eval_op.h
+
+SYSINC=$(shell dirname $(shell which pblaze-cc))/../target/include
+SYSLIB=$(shell dirname $(shell which pblaze-cc))/../target/lib-pb3a
 
 .PHONY: clean all
 
@@ -10,5 +12,26 @@ all: $(OUT)
 clean:
 	-$(RM) $(OUT)
 
-%.h: %.c $(PSMO)
-	$(CC) $^ -o $@
+%.O0.ll: %.c
+	pblaze-clang -Wall -ccc-host-triple pblaze -ffunction-sections -I$(API_PATH)/20-pb-firmware -I$(SYSINC) -S -emit-llvm  $< -o $@
+
+%.O3.ll: %.O0.ll
+	pblaze-opt -O3 -S $< -o $@
+
+%.s: %.ll
+	pblaze-llc -asm-verbose -mcpu=pb3a -ffunction-sections $< -o $@
+
+%.o: %.O3.s
+	pblaze-llvm-mc -triple=pblaze -mcpu=pb3a -filetype=obj $< -o $@
+
+%.o: %.c
+
+%.elf: %.o
+	pblaze-ld -L$(SYSLIB) --gc-sections $(SYSLIB)/startup.o $< $(API_PATH)/20-pb-firmware/pbbcelib.o -lpblibc -o $@
+
+%.bin : %.elf
+	objcopy -I elf32-little -O binary -j .text $^ $@
+	@if [ `stat -c%s $@` -ge 4096 ]; then echo -e "\e[0;31mERROR: Firmware image file $@ is bigger than 1024 words (4kB)!!\e[00m"; fi
+
+%.h : %.bin
+	pblaze-bincopy --format=c $< $@

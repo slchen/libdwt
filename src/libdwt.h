@@ -640,6 +640,14 @@ void dwt_util_test_image_fill_s(
 	int rand		///< random seed
 );
 
+void dwt_util_test_image_zero_s(
+	void *ptr,		///< pointer to beginning of image data
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y	///< height of nested image (in elements)
+);
+
 /**
  * @brief Allocate image.
  *
@@ -873,6 +881,43 @@ enum dwt_op
 void dwt_util_switch_op(
 	enum dwt_op op		///< identifier of PicoBlaze operation
 );
+
+/**
+ * @brief Check the correct function of EdkDSP platform.
+ */
+void dwt_util_test();
+
+/**
+ * @brief Terminate the program.
+ */
+void dwt_util_abort();
+
+/**
+ * @brief Actively waits the specified number of milliseconds.
+ */
+void dwt_util_wait(int ms);
+
+/**
+ * @brief Allocate vector of @e size volatile floats.
+ */
+volatile float *dwt_util_allocate_vec_s_v(int size);
+
+/**
+ * @brief Allocate vector of @e size floats.
+ */
+float *dwt_util_allocate_vec_s(int size);
+
+void dwt_util_generate_vec_s_v(volatile float *addr, int size);
+void dwt_util_generate_vec_s(float *addr, int size);
+
+void dwt_util_zero_vec_s_v(volatile float *addr, int size);
+void dwt_util_zero_vec_s(float *addr, int size);
+
+void dwt_util_copy_vec_s(const float *src, float *dst, int size);
+void dwt_util_copy_vec_s_v(const volatile float *src, volatile float *dst, int size);
+
+void dwt_util_cmp_vec_s_v(const volatile float *a, const volatile float *b, int size);
+void dwt_util_cmp_vec_s(const float *a, const float *b, int size);
 
 /**
  * @}

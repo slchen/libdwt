@@ -1,3 +1,6 @@
+2012-10-30 David Barina <ibarina@fit.vutbr.cz>
+* Added initial support for UTIA ASVP platform and DMA memory transfers.
+
 2011-10-07 David Barina <ibarina@fit.vutbr.cz>
 * libdwt.c libdwt.h: Added support for CDF 5/3 wavelet.
 

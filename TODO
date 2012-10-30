@@ -21,3 +21,4 @@
 * use size_t, ssize_t, etc. instead of unsigned int, int, ...
 * EdkDSP: upload new data when waiting for preceding operation (use memory banks 0/1)
 * 3D data support
+* BCEv2 with DMA
