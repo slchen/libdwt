@@ -8,8 +8,16 @@
 #define DEBUG_VERBOSE
 #define USE_DMA
 
-#ifndef NDEBUG
+#define STRING(x) #x
+
+#ifdef NDEBUG
+	/* Release build */
 	#undef DEBUG
+	#define FUNC_BEGIN
+	#define FUNC_END
+#else
+	/* Debug build */
+	#define DEBUG
 	#ifdef DEBUG_VERBOSE
 		#define FUNC_BEGIN printf("DEBUG: %s ENTRY\n", __FUNCTION__);
 		#define FUNC_END printf("DEBUG: %s EXIT\n", __FUNCTION__);
@@ -17,10 +25,6 @@
 		#define FUNC_BEGIN
 		#define FUNC_END
 	#endif
-#else
-	#define DEBUG
-	#define FUNC_BEGIN
-	#define FUNC_END
 #endif
 
 /** UTIA EdkDSP specific code */
@@ -30,12 +34,33 @@
 	#include <bce_fp01_1x1_plbw.h>
 
 	WAL_REGISTER_WORKER(worker, BCE_JK_FP32M24, BCE_FP01_1X1_PLBW_ConfigTable, 0, 1, 0);
+
+	#include "firmware/fw_fp01_lift4sa.h"
+	#include "firmware/fw_fp01_lift4sb.h"
+
+	/**
+	* Size of each EdkDSP memory bank is 256 floats
+	*/
+	#define BANK_SIZE 256
+
+	#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
+
+	#ifdef NDEBUG
+		/* Release build */
+		#define WAL_CHECK(expr) (expr)
+	#else
+		/* Debug build */
+		#ifdef DEBUG_VERBOSE
+			#define WAL_CHECK(expr) ( printf("DEBUG: %s = ", STRING(expr)), wal_abort(expr) )
+		#else
+			#define WAL_CHECK(expr) ( wal_abort(expr) )
+		#endif
+	#endif
 #endif
 
 /** UTIA EdkDSP specific code */
 #ifdef microblaze
 	#define WAL_NATIVE_DMA
-	//#define WAL_NATIVE
 	#include <wal.h>
 	#include <wal_bce_dma.h>
 	#include <bce_dma_config.h>
@@ -46,31 +71,30 @@
 	#include "firmware/fw_fp01_lift4sa.h"
 	#include "firmware/fw_fp01_lift4sb.h"
 
+	#define BANK_SIZE 1024
+
+	// FIXME
+	#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
+
+	#define WAL_DMA_MASK(ch) ( 1<<(ch) )
+
 	#ifdef NDEBUG
+		/* Release build */
 		#define WAL_CHECK(expr) (expr)
 	#else
-		#define STRING(x) #x
+		/* Debug build */
 		#ifdef DEBUG_VERBOSE
-			#define PRINT(x) printf("DEBUG: %s = ", STRING(x))
+			#define WAL_CHECK(expr) ( printf("DEBUG: %s = ", STRING(expr)), wal_abort(expr) )
 		#else
-			#define PRINT(x) (void)0
+			#define WAL_CHECK(expr) ( wal_abort(expr) )
 		#endif
-		//#define WAL_CHECK(expr) ( (expr) ? abort() : (void)0 )
-		#define WAL_CHECK(expr) ( PRINT(expr), wal_abort(expr) )
 	#endif
 #endif
 
-/**
- * Size of each EdkDSP memory bank is 256 floats
- */
-#ifdef microblaze
-	#define BANK_SIZE 256
-
-	#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
-#else
-	#define BANK_SIZE 256
+#ifndef BANK_SIZE
+	#define BANK_SIZE 4096
 #endif
-
+	
 /** disable timers when using Par4All tool */
 #if !defined(P4A)
 	#define USE_TIME_CLOCK
@@ -268,6 +292,7 @@
 #include <math.h> // fabs, fabsf, isnan, isinf
 #include <stdio.h> // FILE, fopen, fprintf, fclose
 #include <string.h> // memcpy
+#include <stdarg.h> // va_start, va_end
 
 /** OpenMP header when used */
 #ifdef _OPENMP
@@ -283,8 +308,7 @@
 #endif
 
 /** quoting macros */
-#define _QUOTE(x) #x
-#define QUOTE(x) _QUOTE(x)
+#define QUOTE(x) STRING(x)
 
 #ifdef microblaze
 static inline
@@ -294,6 +318,7 @@ void flush_cache(
 {
 	const size_t dcache_line_len = 4;
 
+	// FIXME: maybe should be <=
 	for(size_t i = 0; i < size; i += dcache_line_len)
 		__asm volatile (
 			"wdc %0, r0;"
@@ -1245,13 +1270,6 @@ int is_aligned_8(
 	return ( (intptr_t)ptr&(intptr_t)(8-1) ) ? 0 : 1;
 }
 
-static
-int is_aligned_8_v(
-	const volatile void *ptr)
-{
-	return ( (intptr_t)ptr&(intptr_t)(8-1) ) ? 0 : 1;
-}
-
 /**
  * @returns 0 when not aligned or 1 when aligned
  */
@@ -1290,58 +1308,59 @@ void accel_lift_op4s_main_pb_s(
 	UNUSED(delta);
 	UNUSED(zeta);
 
-	assert( steps <= (BANK_SIZE-4)/2 );
+	assert( steps <= (BANK_SIZE - 4 + ( is_aligned_8(arr) ? 0 : -2 ) ) / 2 );
 
-	const int size = 2*steps+4;
+	// FIXME: const
+	int size = 2*steps+4;
 
 	float *addr = arr;
 	
 	//WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, 2*steps+4) );
 
-	// FIXME: pořešit, když není addr zarovnáno na 64 bitů
-	int workaround = 0;
+	// FIXME: fix dma transfers of addr not aligned to 64 bits
+	unsigned int pb_offset = 0;
 	if( !is_aligned_8(addr) )
 	{
-		addr = dwt_util_allocate_vec_s(size);
-		dwt_util_copy_vec_s(arr, addr, size);
-		workaround = 1;
+		// HACK: accessing outside of my memory!
+		addr--;
+		size += 2;
+		pb_offset++;
 	}
 
-	assert( is_aligned_8_v(addr) );
+	assert( is_aligned_8(addr) );
 	assert( is_even(size) );
 #ifndef USE_DMA
 	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), addr, size) );
 #else /* USE_DMA */
-	//const uint8_t ch = 0;
-	WAL_CHECK( wal_dma_configure(worker, /*ch*/0, addr, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
-	WAL_CHECK( wal_dma_start(worker, /*ch*/0, WAL_DMA_REQ_RD) );
-	while( wal_dma_isbusy(worker, 0x01) )
+	const uint8_t ch = 0;
+	WAL_CHECK( wal_dma_configure(worker, ch, addr, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
+	WAL_CHECK( wal_dma_start(worker, ch, WAL_DMA_REQ_RD) );
+	while( wal_dma_isbusy(worker, WAL_DMA_MASK(ch)) )
 		;
 #endif /* USE_DMA */
 
-	WAL_CHECK( wal_mb2pb(worker, steps) );
+	const uint32_t steps_32 = (uint32_t)steps;
+	const uint32_t pb_offset_32 = (uint32_t)pb_offset;
+	WAL_CHECK( wal_mb2cmem(worker, WAL_CMEM_MB2PB, 0x01, &steps_32, 1) );
+	WAL_CHECK( wal_mb2cmem(worker, WAL_CMEM_MB2PB, 0x02, &pb_offset_32, 1) );
+	WAL_CHECK( wal_mb2pb(worker, 1) );
 	WAL_CHECK( wal_pb2mb(worker, NULL) );
 
 	//WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, 2*steps+4) );
 
-	assert( is_aligned_8_v(addr) );
+	assert( is_aligned_8(addr) );
 	assert( is_even(size) );
 #ifndef USE_DMA
 	WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), addr, size) );
 #else /* USE_DMA */
-	WAL_CHECK( wal_dma_configure(worker, 0, addr, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
-	WAL_CHECK( wal_dma_start(worker, 0, WAL_DMA_REQ_WR) );
-	while(wal_dma_isbusy(worker, 0x01))
+	WAL_CHECK( wal_dma_configure(worker, ch, addr, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
+	WAL_CHECK( wal_dma_start(worker, ch, WAL_DMA_REQ_WR) );
+	while( wal_dma_isbusy(worker, WAL_DMA_MASK(ch)) )
 		;
 #endif /* USE_DMA */
-	flush_cache(addr, size);
 
-	if( workaround )
-	{
-		dwt_util_copy_vec_s(addr, arr, size);
-		free(addr);
-	}
-	
+	// HACK: why +1? should be "size" only
+	flush_cache(addr, size+1);
 #else /* microblaze */
 	// fallback
 	accel_lift_op4s_main_s(arr, steps, alpha, beta, gamma, delta, zeta, scaling);
@@ -1696,12 +1715,12 @@ void accel_lift_op4s_s(
 	{
 		accel_lift_op4s_prolog_s(arr, off, len, alpha, beta, gamma, delta, zeta, scaling);
 
-		// FIXME: dodělat 64-bitové zarovnání pro DMA přenosy
 		if(1 == dwt_util_global_accel_type[0])
 		{
-			const int max_inner_len = to_even(BANK_SIZE) - 4;
-			const int inner_len = to_even(len-off) - 4;
+			const int max_inner_len = to_even(BANK_SIZE) - 4 + ( is_aligned_8(arr+off) ? 0 : -2);
+			const int inner_len = to_even(len-off) - 4; // FIXME: maybe -2?
 			const int blocks = inner_len / max_inner_len;
+			// full length blocks
 			for(int b = 0; b < blocks; b++)
 			{
 				const int left = off + b * max_inner_len;
@@ -1716,7 +1735,7 @@ void accel_lift_op4s_s(
 				const int steps = (off + inner_len - left)/2;
 
 				// TODO: here should be a test if last block should be accelerated on PicoBlaze or rather computed on MicroBlaze
-				if( steps > 96 )
+				if( steps > /* FIXME: 96 */ 10 )
 					accel_lift_op4s_main_pb_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
 				else
 					accel_lift_op4s_main_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
@@ -2202,6 +2221,7 @@ void dwt_util_switch_op(
 	enum dwt_op op)
 {
 	FUNC_BEGIN;
+
 #ifdef microblaze
 	//WAL_CHECK( wal_mb2pb(worker, 0) );
 
@@ -2222,14 +2242,13 @@ void dwt_util_switch_op(
 				zeta = dwt_cdf97_s1_s;
 
 			const int size = 12;
-			// FIXME: vyuzit pametovou banku "D" pro tyhle koeficienty
+			// FIXME: for these coeeficients, use memory bank "D"
 			const float coeffs[12] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta, 0.0f};
-			volatile float *addr = dwt_util_allocate_vec_s(size);
-			// FIXME: warning: passing arg 1 of `memcpy' discards qualifiers from pointer target type
-			memcpy((volatile void *)addr, coeffs, size*sizeof(float));
+			float *addr = dwt_util_allocate_vec_s(size);
+			memcpy((void *)addr, coeffs, size*sizeof(float));
 
 			assert( is_even(size) );
-			assert( is_aligned_8_v(addr) );
+			assert( is_aligned_8(addr) );
 
 			//WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), coeffs, 11) );
 #ifndef USE_DMA
@@ -2254,13 +2273,13 @@ void dwt_util_switch_op(
 				zeta = dwt_cdf97_s1_s;
 
 			const int size = 12;
-			// FIXME: vyuzit pametovou banku "D" pro tyhle koeficienty
+			// FIXME: for these coeeficients, use memory bank "D"
 			const float coeffs[12] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta, 0.0f};
-			volatile float *addr = dwt_util_allocate_vec_s(size);
+			float *addr = dwt_util_allocate_vec_s(size);
 			memcpy(addr, coeffs, size*sizeof(float));
 
 			assert( is_even(size) );
-			assert( is_aligned_8_v(addr) );
+			assert( is_aligned_8(addr) );
 
 			//WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), coeffs, 11) );
 #ifndef USE_DMA
@@ -2279,6 +2298,7 @@ void dwt_util_switch_op(
 #else
 	UNUSED(op);
 #endif
+
 	FUNC_END;
 }
 
@@ -2447,7 +2467,6 @@ void dwt_cdf53_2f_d(
 		j++;
 	}
 }
-
 
 void dwt_cdf97_2f_s(
 	void *ptr,
@@ -2621,7 +2640,6 @@ void dwt_cdf53_2f_s(
 	}
 }
 
-
 void dwt_cdf97_2i_d(
 	void *ptr,
 	int stride_x,
@@ -2775,7 +2793,6 @@ void dwt_cdf53_2i_d(
 		j--;
 	}
 }
-
 
 void dwt_cdf97_2i_s(
 	void *ptr,
@@ -2936,7 +2953,6 @@ void dwt_cdf53_2i_s(
 		j--;
 	}
 }
-
 
 int dwt_util_clock_autoselect()
 {
@@ -3535,6 +3551,7 @@ int dwt_util_get_num_threads()
 void dwt_util_init()
 {
 	FUNC_BEGIN;
+
 #ifdef microblaze
 	WAL_CHECK( wal_init_worker(worker) );
 
@@ -3542,7 +3559,7 @@ void dwt_util_init()
 
 	WAL_CHECK( wal_set_firmware(worker, /*WAL_PBID_P1*/DWT_OP_LIFT4SB, fw_fp01_lift4sb, -1) );
 
-	// TODO: zavolat switch_op()
+	// TODO: call switch_op()
 
 	WAL_CHECK( wal_reset_worker(worker) );
 
@@ -3555,13 +3572,16 @@ void dwt_util_init()
 #else /* USE_DMA */
 	printf("DEBUG: Usign new DMA memory transfer functions.\n");
 #endif /* USE_DMA */
+
 #endif /* microblaze */
+
 	FUNC_END;
 }
 
 void dwt_util_finish()
 {
 	FUNC_BEGIN;
+
 #ifdef microblaze
 	//WAL_CHECK( wal_mb2pb(worker, 0) );
 
@@ -3569,23 +3589,26 @@ void dwt_util_finish()
 
 	WAL_CHECK( wal_done_worker(worker) );
 #endif
+
 	FUNC_END;
 }
 
 void dwt_util_abort()
 {
 	FUNC_BEGIN;
+
 #ifdef microblaze
-	// FIXME: je tohle legalni, prestoze operace nebyla spustena?
+	// FIXME: is this legal? although the operation was not running?
 	wal_end_operation(worker);
 
-	// deinicializuje workera
+	// deinitialize worker
 	wal_done_worker(worker);
 
-	// abortuje program
+	// abort program
 	abort();
 
 #endif /* microblaze */
+
 	FUNC_END;
 }
 
@@ -3632,7 +3655,7 @@ void dwt_util_set_accel(
 
 #define iszero(x) (fpclassify(x) == FP_ZERO)
 
-int dwt_util_is_normal_or_zero_vi(volatile float *a)
+int dwt_util_is_normal_or_zero_i(const float *a)
 {
 	if( isnormal(*a) || iszero(*a) )
 		return 1;
@@ -3640,24 +3663,19 @@ int dwt_util_is_normal_or_zero_vi(volatile float *a)
 	return 0;
 }
 
-int dwt_util_is_normal_or_zero_i(float *a)
-{
-	return dwt_util_is_normal_or_zero_vi(a);
-}
-
 int dwt_util_is_normal_or_zero(float a)
 {
 	return dwt_util_is_normal_or_zero_i(&a);
 }
 
-void dwt_util_cmp_s_vi(const volatile float *a, const volatile float *b)
+void dwt_util_cmp_s_i(const float *a, const float *b)
 {
 	assert( a );
 	assert( b );
 	
-	const float eps = 1e-4; // FIXME: magicka konstanta
+	const float eps = 1e-4; // FIXME: magic constant
 
-	if( !dwt_util_is_normal_or_zero_vi(a) || !dwt_util_is_normal_or_zero_vi(b) )
+	if( !dwt_util_is_normal_or_zero_i(a) || !dwt_util_is_normal_or_zero_i(b) )
 	{
 		printf("ERROR: %f or %f is not normal nor zero!\n", *a, *b);
 		dwt_util_abort();
@@ -3670,17 +3688,12 @@ void dwt_util_cmp_s_vi(const volatile float *a, const volatile float *b)
 	}
 }
 
-void dwt_util_cmp_s_i(const float *a, const float *b)
-{
-	dwt_util_cmp_s_vi(a, b);
-}
-
 void dwt_util_cmp_s(float a, float b)
 {
 	dwt_util_cmp_s_i(&a, &b);
 }
 
-void dwt_util_generate_vec_s_v(volatile float *addr, int size)
+void dwt_util_generate_vec_s(float *addr, int size)
 {
 	for(int i=0; i<size; i++)
 		addr[i] = (float)i;
@@ -3691,34 +3704,24 @@ void dwt_util_generate_vec_s_v(volatile float *addr, int size)
 	}
 }
 
-void dwt_util_generate_vec_s(float *addr, int size)
-{
-	dwt_util_generate_vec_s_v(addr, size);
-}
-
-volatile float *dwt_util_allocate_vec_s_v(int size)
+float *dwt_util_allocate_vec_s(int size)
 {
 	assert( is_even(size) );
 
-	volatile float *addr = (volatile float *)0;
+	float *addr = (float *)0;
 
 	// FIXME: possibly infinite loop!
 	do
 	{
-		//free(addr); // FIXME: pak zatuhne v nekonečném cyklu, posix_memalign(3)?
-		addr = (volatile float *)malloc( sizeof(float) * size );
+		// free(addr); // FIXME: freezes in an infinite loop
+		addr = (float *)malloc( sizeof(float) * size );
 	}
-	while( !is_aligned_8_v(addr) );
+	while( !is_aligned_8(addr) );
 
 	return addr;
 }
 
-float *dwt_util_allocate_vec_s(int size)
-{
-	return dwt_util_allocate_vec_s_v(size);
-}
-
-void dwt_util_zero_vec_s_v(volatile float *addr, int size)
+void dwt_util_zero_vec_s(float *addr, int size)
 {
 	for(int i=0; i<size; i++)
 		addr[i] = (float)0;
@@ -3729,12 +3732,7 @@ void dwt_util_zero_vec_s_v(volatile float *addr, int size)
 	}
 }
 
-void dwt_util_zero_vec_s(float *addr, int size)
-{
-	dwt_util_zero_vec_s_v(addr, size);
-}
-
-void dwt_util_copy_vec_s_v(const volatile float *src, volatile float *dst, int size)
+void dwt_util_copy_vec_s(const float *src, float *dst, int size)
 {
 	for(int i=0; i<size; i++)
 		dst[i] = src[i];
@@ -3745,22 +3743,12 @@ void dwt_util_copy_vec_s_v(const volatile float *src, volatile float *dst, int s
 	}
 }
 
-void dwt_util_copy_vec_s(const float *src, float *dst, int size)
+void dwt_util_cmp_vec_s(const float *a, const float *b, int size)
 {
-	dwt_util_copy_vec_s_v(src, dst, size);
-}
-
-void dwt_util_cmp_vec_s_v(const volatile float *a, const volatile float *b, int size)
-{
-	for(int i=size-1; i>=0; i--)
+	for(int i = size-1; i >= 0; i--)
 	{
 		dwt_util_cmp_s(a[i], b[i]);
 	}
-}
-
-void dwt_util_cmp_vec_s(const float *a, const float *b, int size)
-{
-	dwt_util_cmp_vec_s_v(a, b, size);
 }
 
 void dwt_util_print_vec_s(const float *addr, int size)
@@ -3771,9 +3759,9 @@ void dwt_util_print_vec_s(const float *addr, int size)
 	printf("]\n");
 }
 
-#ifdef microblaze
 void dwt_util_test()
 {
+#ifdef microblaze
 	printf("TEST: malloc...\n");
 	for(int i = 2; i <= 4096; i *= 2)
 	{
@@ -3787,8 +3775,7 @@ void dwt_util_test()
 	if( wal_reset_worker(worker) )
 		abort();
 
-	//const int size = 256;
-	const int size = 1024;
+	const int size = BANK_SIZE;
 
 	printf("TEST: allocating vector of %i floats...\n", size);
 	float *addr = dwt_util_allocate_vec_s(size);
@@ -3835,5 +3822,76 @@ void dwt_util_test()
 	wal_done_worker(worker);
 
 	printf("TEST: test done\n");
-}
 #endif
+}
+
+int dwt_util_vfprintf(FILE *stream, const char *format, va_list ap)
+{
+	return vfprintf(stream, format, ap);
+}
+
+int vprintf(const char *format, va_list ap)
+{
+	return dwt_util_vfprintf(stdout, format, ap);
+}
+
+int dwt_util_fprintf(FILE *stream, const char *format, ...)
+{
+	va_list ap;
+
+	va_start(ap, format);
+	int ret = dwt_util_vfprintf(stream, format, ap);
+	va_end(ap);
+
+	return ret;
+}
+
+int dwt_util_printf(const char *format, ...)
+{
+	va_list ap;
+
+	va_start(ap, format);
+	int ret = dwt_util_vfprintf(stdout, format, ap);
+	va_end(ap);
+
+	return ret;
+}
+
+/**
+ * Log levels for @ref dwt_util_log function.
+ */
+enum dwt_util_loglevel {
+	LOG_DBG,
+	LOG_INFO,
+	LOG_WARN,
+	LOG_ERR,
+};
+
+/**
+ * @brief Formatted output.
+ */
+int dwt_util_log(
+	enum dwt_util_loglevel level,	///< log level
+	const char *format,		///< format string that specifies how subsequent arguments re converted for output
+	...)				///< the subsequent arguments
+{
+	int ret = 0;
+	FILE *stream = stderr;
+
+	const char *prefix[] = {
+		[LOG_DBG]  = "DEBUG: ",
+		[LOG_INFO] = "INFO: ",
+		[LOG_WARN] = "WARNING: ",
+		[LOG_ERR]  = "ERROR: ",
+	};
+
+	ret += dwt_util_fprintf(stream, prefix[level]);
+
+	va_list ap;
+
+	va_start(ap, format);
+	ret += dwt_util_vfprintf(stream, format, ap);
+	va_end(ap);
+
+	return ret;
+}

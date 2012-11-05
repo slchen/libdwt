@@ -1,4 +1,4 @@
-ARCH ?= $(shell arch)
+ARCH ?= $(shell uname -m)
 
 # common part
 CROSS_COMPILE ?= 
@@ -29,6 +29,13 @@ ifeq ($(ARCH),x86_64)
 	CFLAGS += -fopenmp -fPIC
 	LDFLAGS += -fopenmp
 	LDLIBS += -lrt
+endif
+
+ifeq ($(ARCH),armv6l)
+	CROSS_COMPILE = 
+	CFLAGS += -fopenmp -fPIC
+	LDFLAGS += -fopenmp
+	LDLIBS += -lrt                                                                                                                                                              
 endif
 
 ifeq ($(BUILD),release)

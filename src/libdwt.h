@@ -898,25 +898,30 @@ void dwt_util_abort();
 void dwt_util_wait(int ms);
 
 /**
- * @brief Allocate vector of @e size volatile floats.
- */
-volatile float *dwt_util_allocate_vec_s_v(int size);
-
-/**
  * @brief Allocate vector of @e size floats.
  */
 float *dwt_util_allocate_vec_s(int size);
 
-void dwt_util_generate_vec_s_v(volatile float *addr, int size);
+/**
+ * @brief Fill vector of floats with simple sequence.
+ */
 void dwt_util_generate_vec_s(float *addr, int size);
 
-void dwt_util_zero_vec_s_v(volatile float *addr, int size);
+/**
+ * @brief Fill vector with zeros.
+ */
 void dwt_util_zero_vec_s(float *addr, int size);
 
+/**
+ * @brief Copy vector of given size.
+ */
 void dwt_util_copy_vec_s(const float *src, float *dst, int size);
-void dwt_util_copy_vec_s_v(const volatile float *src, volatile float *dst, int size);
 
-void dwt_util_cmp_vec_s_v(const volatile float *a, const volatile float *b, int size);
+/**
+ * @brief Compare two vectors.
+ * 
+ * @warning highly experimental
+ */
 void dwt_util_cmp_vec_s(const float *a, const float *b, int size);
 
 /**

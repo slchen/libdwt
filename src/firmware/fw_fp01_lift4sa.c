@@ -4,14 +4,16 @@
  * @brief PicoBlaze firmware performing 4 lifting steps and scaling after lifting together.
  */
 
-// include PB2DFU library for BCE with FP01 DFU
 #include "../../api/20-pb-firmware/pbbcelib.h"
+
+// TODO: elliminated DFU_VCOPY operation
 
 int main()
 {
 	pb2mb_report_running();
 
-	unsigned char steps;
+	unsigned int steps;
+	unsigned int pb_offset;
 
 	/*
 	pb2dfu_set_restart_addr(DFU_MEM_A, 0);
@@ -27,8 +29,11 @@ int main()
 
 	while(steps = pb2mb_read_data())
 	*/
-	while( (steps = mbpb_exchange_data(0)) )
+	while( mbpb_exchange_data(0) )
 	{
+		steps = read_bce_cmem_u16(0x01, 0);
+		pb_offset = read_bce_cmem_u16(0x02, 0);
+
 		/*
 		pb2dfu_set_inc(DFU_MEM_B, 0);
 		pb2dfu_set_addr(DFU_MEM_A, 3);
@@ -38,13 +43,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VMULT);
 		*/
 		// TODO: Z[1:2:] <= A[3:2:] * B[6:0:] (cnt=steps+1)
+		// TODO: Z[1:2:] <= A[pb_offset+3:2:] * B[6:0:] (cnt=steps+1)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_C); // C = Z
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_B);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*Z*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 3);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+3);
 		pb2dfu_set_addr(DFUAG_2/*B*/, 6);
 		// incrementy
 		pb2dfu_set_inc(DFUAG_0/*Z*/, 2);
@@ -64,13 +70,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VADD_AZ2B);
 		*/
 		// TODO: B[1:2:] <= A[4:2:] + Z[1:2:] (cnt=steps)
+		// TODO: B[1:2:] <= A[pb_offset+4:2:] + Z[1:2:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_B);
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_C); // C = Z
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*B*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 4);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+4);
 		pb2dfu_set_addr(DFUAG_2/*Z*/, 1);
 		// incrementy
 		pb2dfu_set_inc(DFUAG_0/*B*/, 2);
@@ -88,12 +95,13 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VADD_BZ2A);
 		*/
 		// TODO: A[4:2:] <= B[1:2:] + Z[3:2:] (cnt=steps)
+		// TODO: A[pb_offset+4:2:] <= B[1:2:] + Z[3:2:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_A);
 		pb2dfu_set_bank(DFUAG_1, MBANK_B);
 		pb2dfu_set_bank(DFUAG_2, MBANK_C); // C = Z
 		// offsety
-		pb2dfu_set_addr(DFUAG_0/*A*/, 4);
+		pb2dfu_set_addr(DFUAG_0/*A*/, pb_offset+4);
 		pb2dfu_set_addr(DFUAG_1/*B*/, 1);
 		pb2dfu_set_addr(DFUAG_2/*Z*/, 3);
 		// incrementy
@@ -116,13 +124,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VMULT);
 		*/
 		// TODO: Z[1:2:] <= A[2:2:] * B[4:0:] (cnt=steps+1)
+		// TODO: Z[1:2:] <= A[pb_offset+2:2:] * B[4:0:] (cnt=steps+1)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_C); // C = Z
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_B);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*Z*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 2);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+2);
 		pb2dfu_set_addr(DFUAG_2/*B*/, 4);
 		// incrementy
 		pb2dfu_set_inc(DFUAG_0/*Z*/, 2);
@@ -143,13 +152,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VADD_AZ2B);
 		*/
 		// TODO: B[1:2:] <= A[3:2:] + Z[1:2:] (cnt=steps)
+		// TODO: B[1:2:] <= A[pb_offset+3:2:] + Z[1:2:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_B);
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_C);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*B*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 3);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+3);
 		pb2dfu_set_addr(DFUAG_2/*Z*/, 1);
 		// incrementy
 		pb2dfu_set_inc(DFUAG_0/*B*/, 2);
@@ -167,12 +177,13 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VADD_BZ2A);
 		*/
 		// TODO: A[3:2:] <= B[1:2:] + Z[3:2:] (cnt=steps)
+		// TODO: A[pb_offset+3:2:] <= B[1:2:] + Z[3:2:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_A);
 		pb2dfu_set_bank(DFUAG_1, MBANK_B);
 		pb2dfu_set_bank(DFUAG_2, MBANK_C);
 		// offsety
-		pb2dfu_set_addr(DFUAG_0/*A*/, 3);
+		pb2dfu_set_addr(DFUAG_0/*A*/, pb_offset+3);
 		pb2dfu_set_addr(DFUAG_1/*B*/, 1);
 		pb2dfu_set_addr(DFUAG_2/*Z*/, 3);
 		// incerementy
@@ -195,13 +206,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VMULT);
 		*/
 		// TODO: Z[1:2:] <= A[1:2:] * B[2:0:] (cnt=steps+1)
+		// TODO: Z[1:2:] <= A[pb_offset+1:2:] * B[2:0:] (cnt=steps+1)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_C);
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_B);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*Z*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 1);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+1); // FIXME: Assertion `DestReg == VirtReg && "Unknown load situation!"' failed.
 		pb2dfu_set_addr(DFUAG_2/*B*/, 2);
 		// incerementy
 		pb2dfu_set_inc(DFUAG_0/*Z*/, 2);
@@ -222,13 +234,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VADD_AZ2B);
 		*/
 		// TODO: B[1:2:] <= A[2:2:] + Z[1:2:] (cnt=steps)
+		// TODO: B[1:2:] <= A[pb_offset+2:2:] + Z[1:2:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_B);
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_C);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*B*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 2);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+2);
 		pb2dfu_set_addr(DFUAG_2/*Z*/, 1);
 		// incerementy
 		pb2dfu_set_inc(DFUAG_0/*B*/, 2);
@@ -246,12 +259,13 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VADD_BZ2A);
 		*/
 		// TODO: A[2:2:] <= B[1:2:] + Z[3:2:] (cnt=steps)
+		// TODO: A[pb_offset+2:2:] <= B[1:2:] + Z[3:2:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_A);
 		pb2dfu_set_bank(DFUAG_1, MBANK_B);
 		pb2dfu_set_bank(DFUAG_2, MBANK_C);
 		// offsety
-		pb2dfu_set_addr(DFUAG_0/*A*/, 2);
+		pb2dfu_set_addr(DFUAG_0/*A*/, pb_offset+2);
 		pb2dfu_set_addr(DFUAG_1/*B*/, 1);
 		pb2dfu_set_addr(DFUAG_2/*Z*/, 3);
 		// incerementy
@@ -274,13 +288,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VMULT);
 		*/
 		// TODO: Z[1:2:] <= A[0:2:] * B[0:0:] (cnt=steps+1)
+		// TODO: Z[1:2:] <= A[pb_offset+0:2:] * B[0:0:] (cnt=steps+1)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_C);
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_B);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*Z*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 0);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+0);
 		pb2dfu_set_addr(DFUAG_2/*B*/, 0);
 		// incerementy
 		pb2dfu_set_inc(DFUAG_0/*Z*/, 2);
@@ -301,13 +316,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VADD_AZ2B);
 		*/
 		// TODO: B[1:2:] <= A[1:2:] + Z[1:2:] (cnt=steps)
+		// TODO: B[1:2:] <= A[pb_offset+1:2:] + Z[1:2:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_B);
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_C);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*B*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 1);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+1);
 		pb2dfu_set_addr(DFUAG_2/*Z*/, 1);
 		// incerementy
 		pb2dfu_set_inc(DFUAG_0/*B*/, 2);
@@ -325,12 +341,13 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VADD_BZ2A);
 		*/
 		// TODO: A[1:2:] <= B[1:2:] + Z[3:2:] (cnt=steps)
+		// TODO: A[pb_offset+1:2:] <= B[1:2:] + Z[3:2:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_A);
 		pb2dfu_set_bank(DFUAG_1, MBANK_B);
 		pb2dfu_set_bank(DFUAG_2, MBANK_C);
 		// offsety
-		pb2dfu_set_addr(DFUAG_0/*A*/, 1);
+		pb2dfu_set_addr(DFUAG_0/*A*/, pb_offset+1);
 		pb2dfu_set_addr(DFUAG_1/*B*/, 1);
 		pb2dfu_set_addr(DFUAG_2/*Z*/, 3);
 		// incerementy
@@ -351,13 +368,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VMULT);
 		*/
 		// TODO: Z[1:2:] <= A[1:2:] * B[8:0:] (cnt=steps)
+		// TODO: Z[1:2:] <= A[pb_offset+1:2:] * B[8:0:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_C);
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_B);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*Z*/, 1);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 1);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+1);
 		pb2dfu_set_addr(DFUAG_2/*B*/, 8);
 		// incrementy
 		pb2dfu_set_inc(DFUAG_0/*Z*/, 2);
@@ -377,14 +395,14 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VMULT);
 		*/
 		// TODO: Z[0:2:] <= A[0:2:] * B[10:0:] (cnt=steps)
-		// FIXME: divné -- proč je tu dvakrát Z <= A * B? bude to v těch indexech? ano :)
+		// TODO: Z[0:2:] <= A[pb_offset+0:2:] * B[10:0:] (cnt=steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_C);
 		pb2dfu_set_bank(DFUAG_1, MBANK_A);
 		pb2dfu_set_bank(DFUAG_2, MBANK_B);
 		// offsety
 		pb2dfu_set_addr(DFUAG_0/*Z*/, 0);
-		pb2dfu_set_addr(DFUAG_1/*A*/, 0);
+		pb2dfu_set_addr(DFUAG_1/*A*/, pb_offset+0);
 		pb2dfu_set_addr(DFUAG_2/*B*/, 10);
 		// incrementy
 		pb2dfu_set_inc(DFUAG_0/*Z*/, 2);
@@ -404,12 +422,12 @@ int main()
 		pb2dfu_restart_op(DFU_OP_VZ2A);
 		*/
 		// TODO: A[0:1:] <= Z[0:1:] (cnt=2*steps)
-		// FIXME: VCOPY, ale slo by to i premapovanim virtualnich vektoru?
+		// TODO: A[pb_offset+0:1:] <= Z[0:1:] (cnt=2*steps)
 		// banky
 		pb2dfu_set_bank(DFUAG_0, MBANK_A);
 		pb2dfu_set_bank(DFUAG_1, MBANK_C);
 		// offsety
-		pb2dfu_set_addr(DFUAG_0/*A*/, 0);
+		pb2dfu_set_addr(DFUAG_0/*A*/, pb_offset+0);
 		pb2dfu_set_addr(DFUAG_1/*Z*/, 0);
 		// incrementy
 		pb2dfu_set_inc(DFUAG_0/*A*/, 1);

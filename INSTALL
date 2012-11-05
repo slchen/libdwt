@@ -1,25 +1,11 @@
-UTIA EdkDSP platform
-====================
+UTIA ASVP platform 
+==================
 
-For cross-compilation for UTIA EdkDSP platform copy following files into ./api
-directory:
+For cross-compilation for UTIA ASVP platform (formerly EdkDSP platform)
+unpack files from asvpsdk-api-1.0.zip archive into ./api directory. This
+archive can be downloaded from:
 
-├── 00-pb-firmware
-│   ├── dfu_fp01_1x1.h
-│   └── dfu_fp01_1x1.psmo
-└── 02-mb-petalinux
-    ├── libbce_step3
-    │   ├── bce_fp01_1x1_plbw.h
-    │   ├── libbce_fp01_1x1.a
-    │   ├── xbasic_types.h
-    │   ├── xcope.h
-    │   └── xstatus.h
-    └── libwal
-        ├── libwal.a
-        ├── wal_bce_jk.h
-        └── wal.h
-
-Furthermore, apply ./api/02-mb-petalinux/libbce_step3/xcope.h.patch patch.
+http://sp.utia.cz/index.php?ids=projects/smecy&id=downloads
 
 Now, you will need properly configured PicoBlaze and PetaLinux compiler for
 library compilation. You can test it on example application in directory

@@ -18,7 +18,14 @@ int main()
 
 	//const int x = 64, y = 64;
 	//const int x = 128, y = 128;
+	//const int x = 256, y = 256;
 	const int x = 512, y = 512;
+	//const int x = 768, y = 768;
+	//const int x = 1024, y = 1024;
+	//const int x = 1024, y = 10;
+	//const int x = 1280, y = 10;
+	//const int x = 2048, y = 10;
+	//const int x = 4096, y = 10;
 	const int stride_x = x*sizeof(float), stride_y = sizeof(float);
 	void *data1, *data2;
 	int j = -1;
@@ -42,7 +49,7 @@ int main()
 	time_start = dwt_util_get_clock(type);
 
 	// forward transform
-	//dwt_util_set_accel(1); // FIXME
+	dwt_util_set_accel(1); // FIXME
 	dwt_cdf97_2f_s(data1, stride_x, stride_y, x, y, x, y, &j, 0, 0);
 
 	// stop timer
@@ -55,7 +62,7 @@ int main()
 	time_start = dwt_util_get_clock(type);
 
 	// inverse transform
-	dwt_util_set_accel(0); // FIXME
+	dwt_util_set_accel(1); // FIXME
 	dwt_cdf97_2i_s(data1, stride_x, stride_y, x, y, x, y, j, 0, 0);
 
 	// stop timer

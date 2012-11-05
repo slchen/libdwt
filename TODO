@@ -22,3 +22,4 @@
 * EdkDSP: upload new data when waiting for preceding operation (use memory banks 0/1)
 * 3D data support
 * BCEv2 with DMA
+* ARM support

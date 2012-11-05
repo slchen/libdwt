@@ -1,3 +1,7 @@
+2012-11-05 David Barina <ibarina@fit.vutbr.cz>
+* Removed volatile modifier.
+* Rewritten firmwares according to 64-bit data alignment.
+
 2012-10-30 David Barina <ibarina@fit.vutbr.cz>
 * Added initial support for UTIA ASVP platform and DMA memory transfers.
 
