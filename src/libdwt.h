@@ -7,6 +7,8 @@
 #define LIBDWT_H
 
 #include <stdint.h> // int64_t
+#include <stdio.h> // FILE
+#include <stdarg.h> // va_list
 
 #ifdef __cplusplus
 extern "C" {
@@ -791,6 +793,11 @@ dwt_clock_t dwt_util_get_clock(
 int dwt_util_get_max_threads();
 
 /**
+ * @brief Get the maximum number of workers available.
+ */
+int dwt_util_get_max_workers();
+
+/**
  * @brief Wrapper to @p omp_set_num_threads function.
  *
  * Sets the number of threads that will be used in parallel region.
@@ -801,12 +808,19 @@ void dwt_util_set_num_threads(
 	int num_threads);
 
 /**
+ * @brief Set the number of active numbers.
+ */
+void dwt_util_set_num_workers(
+	int num_workers);
+
+/**
  * @brief Enable block-acceleration using workers in UTIA EdkDSP platform.
  *
  * @param[in] accel_type Means
  *   @li 0 for C implementation,
  *   @li 1 for BCE implementation if available (EdkDSP platform),
  *   @li 2 for empty implementation (for performance measurement).
+ *   @li 3 (undocumented) TODO
  *
  * @warning highly experimental
  */
@@ -860,6 +874,11 @@ int dwt_util_get_thread_num();
 int dwt_util_get_num_threads();
 
 /**
+ * @brief Get number of active workers.
+ */
+int dwt_util_get_num_workers();
+
+/**
  * @brief Identifier of PicoBlaze operation.
  *
  * @warning highly experimental
@@ -883,7 +902,7 @@ void dwt_util_switch_op(
 );
 
 /**
- * @brief Check the correct function of EdkDSP platform.
+ * @brief Check the correct function of ASVP (EdkDSP) platform.
  */
 void dwt_util_test();
 
@@ -903,7 +922,7 @@ void dwt_util_wait(int ms);
 float *dwt_util_allocate_vec_s(int size);
 
 /**
- * @brief Fill vector of floats with simple sequence.
+ * @brief Fill vector of floats with simple sequence. Useful for testing.
  */
 void dwt_util_generate_vec_s(float *addr, int size);
 
@@ -913,7 +932,7 @@ void dwt_util_generate_vec_s(float *addr, int size);
 void dwt_util_zero_vec_s(float *addr, int size);
 
 /**
- * @brief Copy vector of given size.
+ * @brief Copy vector of given size and check if values was transferred correctly.
  */
 void dwt_util_copy_vec_s(const float *src, float *dst, int size);
 
@@ -923,6 +942,47 @@ void dwt_util_copy_vec_s(const float *src, float *dst, int size);
  * @warning highly experimental
  */
 void dwt_util_cmp_vec_s(const float *a, const float *b, int size);
+
+/**
+ * @brief Replacement for @p vfprintf.
+ */
+int dwt_util_vfprintf(FILE *stream, const char *format, va_list ap);
+
+/**
+ * @brief Replacement for @p vprintf.
+ */
+int dwt_util_vprintf(const char *format, va_list ap);
+
+/**
+ * @brief Replacement for @p fprintf.
+ */
+int dwt_util_fprintf(FILE *stream, const char *format, ...);
+
+/**
+ * @brief Replacement for @p printf.
+ */
+int dwt_util_printf(const char *format, ...);
+
+/**
+ * Log levels for @ref dwt_util_log function.
+ */
+enum dwt_util_loglevel {
+	LOG_NONE = 0,	///< messages without prefix
+	LOG_DBG,	///< debug messages
+	LOG_INFO,	///< informational messages
+	LOG_WARN,	///< warnings
+	LOG_ERR,	///< errors
+	LOG_TEST,	///< tests
+};
+
+/**
+ * @brief Formatted output. Same syntax like @p printf function.
+ */
+int dwt_util_log(
+	enum dwt_util_loglevel level,	///< log level
+	const char *format,		///< format string that specifies how subsequent arguments re converted for output
+	...				///< the subsequent arguments
+);
 
 /**
  * @}

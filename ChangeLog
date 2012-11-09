@@ -1,3 +1,8 @@
+2012-11-09 David Barina <ibarina@fit.vutbr.cz>
+* On ASVP platform, added initial support for parallel processing by several
+BCE workers.
+* Added some logging functions.
+
 2012-11-05 David Barina <ibarina@fit.vutbr.cz>
 * Removed volatile modifier.
 * Rewritten firmwares according to 64-bit data alignment.

@@ -28,52 +28,44 @@
 #endif
 
 /** UTIA EdkDSP specific code */
-#ifdef microblaze_legacy
-	#include <wal.h>
-	#include <wal_bce_jk.h>
-	#include <bce_fp01_1x1_plbw.h>
-
-	WAL_REGISTER_WORKER(worker, BCE_JK_FP32M24, BCE_FP01_1X1_PLBW_ConfigTable, 0, 1, 0);
-
-	#include "firmware/fw_fp01_lift4sa.h"
-	#include "firmware/fw_fp01_lift4sb.h"
-
-	/**
-	* Size of each EdkDSP memory bank is 256 floats
-	*/
-	#define BANK_SIZE 256
-
-	#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
-
-	#ifdef NDEBUG
-		/* Release build */
-		#define WAL_CHECK(expr) (expr)
-	#else
-		/* Debug build */
-		#ifdef DEBUG_VERBOSE
-			#define WAL_CHECK(expr) ( printf("DEBUG: %s = ", STRING(expr)), wal_abort(expr) )
-		#else
-			#define WAL_CHECK(expr) ( wal_abort(expr) )
-		#endif
-	#endif
-#endif
-
-/** UTIA EdkDSP specific code */
 #ifdef microblaze
 	#define WAL_NATIVE_DMA
 	#include <wal.h>
 	#include <wal_bce_dma.h>
 	#include <bce_dma_config.h>
 
-	WAL_REGISTER_WORKER(worker, BCE_DMA_GENERIC_4D, bce_dma_cfgtable, 0, 1, 0);
-	//WAL_REGISTER_WORKER(worker1, BCE_DMA_GENERIC_4D, bce_dma_cfgtable, 1, 1, 0);
+	WAL_REGISTER_WORKER(worker0, BCE_DMA_GENERIC_4D, bce_dma_cfgtable, 0, 1, 0);
+	WAL_REGISTER_WORKER(worker1, BCE_DMA_GENERIC_4D, bce_dma_cfgtable, 1, 1, 0);
+	WAL_REGISTER_WORKER(worker2, BCE_DMA_GENERIC_4D, bce_dma_cfgtable, 2, 1, 0);
+	WAL_REGISTER_WORKER(worker3, BCE_DMA_GENERIC_4D, bce_dma_cfgtable, 3, 1, 0);
+
+	// FIXME: is woraround for global variables required here? var[2] = { ... };
+	const int dwt_util_global_total_workers = BCE_DMA_CFGTABLE_NUM_ITEMS; ///< total number of workers available
+
+	wal_worker_t *worker[BCE_DMA_CFGTABLE_NUM_ITEMS] = {
+		&worker0_data_structure,
+#if BCE_DMA_CFGTABLE_NUM_ITEMS > 1
+		&worker1_data_structure,
+#endif
+#if BCE_DMA_CFGTABLE_NUM_ITEMS > 2
+		&worker2_data_structure,
+#endif
+#if BCE_DMA_CFGTABLE_NUM_ITEMS > 3
+		&worker3_data_structure,
+#endif
+	};
+
+	#include <stddef.h> // ptrdiff_t
+	int dwt_util_global_active_workers = BCE_DMA_CFGTABLE_NUM_ITEMS; ///< how many workers use for computation (can be less than total number of workers)
+	int dwt_util_global_temp_step; ///< in elements; offset in temp[] is gigen by worker_id * dwt_util_global_temp_step
+	ptrdiff_t dwt_util_global_data_step; ///< in bytes; offset in src[] and dst[] is given by worker_id * dwt_util_global_data_step
 
 	#include "firmware/fw_fp01_lift4sa.h"
 	#include "firmware/fw_fp01_lift4sb.h"
 
 	#define BANK_SIZE 1024
 
-	// FIXME
+	// FIXME: is this macro still correct?
 	#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
 
 	#define WAL_DMA_MASK(ch) ( 1<<(ch) )
@@ -94,7 +86,7 @@
 #ifndef BANK_SIZE
 	#define BANK_SIZE 4096
 #endif
-	
+
 /** disable timers when using Par4All tool */
 #if !defined(P4A)
 	#define USE_TIME_CLOCK
@@ -111,6 +103,15 @@
 	#define USE_TIME_GETRUSAGE_SELF
 	#define USE_TIME_GETRUSAGE_CHILDREN
 	#define USE_TIME_GETRUSAGE_THREAD
+#endif
+
+#ifdef DEBUG
+	// BUG: workaround due to gcc?
+	#warning Usign ugly GCC workaround!
+	#undef USE_TIME_CLOCK
+	#undef USE_TIME_TIMES
+	// FIXME: is this now needed?
+	//#define UGLY_GCC_WORKAROUND
 #endif
 
 /** include LINUX_VERSION_CODE and KERNEL_VERSION macros */
@@ -310,6 +311,55 @@
 /** quoting macros */
 #define QUOTE(x) STRING(x)
 
+// FIXME: here, take into account padding at borders when data are not aligned at 64-bits
+// FIXME: s/$/_s$/, s/step/offset/
+/** Calc offset in temp[] array for current worker. */
+static
+float *calc_temp_step(
+	float *addr,	///< pointer to array assigned to worker 0
+	int worker_id	///< identifier of current worker
+	)
+{
+#ifdef microblaze
+	return addr + (dwt_util_global_temp_step * worker_id);
+#else
+	UNUSED(worker_id);
+	return addr;
+#endif
+}
+
+// FIXME: s/$/_s$/, s/step/offset/
+/** Calc offset in src[] or dst[] array for current worker. */
+static
+float *calc_data_step(
+	float *addr,	///< pointer to array assigned to worker 0
+	int worker_id	///< identifier of current worker
+       )
+{
+#ifdef microblaze
+	return (float *)( (intptr_t)addr + (dwt_util_global_data_step * worker_id) );
+#else
+	UNUSED(worker_id);
+	return addr;
+#endif
+}
+
+// FIXME: suffix _s, s/step/offset/
+/** Calc offset in src[] or dst[] array for current worker. */
+static
+const float *calc_data_step_const(
+	const float *addr,	///< pointer to array assigned to worker 0
+	int worker_id	///< identifier of current worker
+       )
+{
+#ifdef microblaze
+	return (const float *)( (intptr_t)addr + (dwt_util_global_data_step * worker_id) );
+#else
+	UNUSED(worker_id);
+	return addr;
+#endif
+}
+
 #ifdef microblaze
 static inline
 void flush_cache(
@@ -318,14 +368,22 @@ void flush_cache(
 {
 	const size_t dcache_line_len = 4;
 
-	// FIXME: maybe should be <=
+	// FIXME: should this function before and after "wct" disable and enable dcache like in kernel here -- http://lxr.linux.no/linux+v3.6.6/arch/microblaze/kernel/cpu/cache.c
+	// FIXME: this code is weird, either addition of 1 in for-loop or multiplication by dcache_line_len should be removed
+	// FIXME: <= would make more sense
 	for(size_t i = 0; i < size; i += dcache_line_len)
+	{
+#ifdef UGLY_GCC_WORKAROUND
+		;
+#else /* UGLY_GCC_WORKAROUND */
 		__asm volatile (
 			"wdc %0, r0;"
 			:
 			: "r" (addr + i * dcache_line_len)
 			: "memory"
 		);
+#endif /* UGLY_GCC_WORKAROUND */
+	}
 }
 #endif
 
@@ -376,6 +434,7 @@ const char *dwt_util_version()
  * @brief Global variable indicating used acceleration type.
  * @note Array of size of 2 is workaround due to GCC 3.4.1 bug.
  */
+// FIXME: is this workaround still needed?
 int dwt_util_global_accel_type[2] = {0};
 
 /**
@@ -1220,45 +1279,51 @@ void accel_lift_op4s_main_s(
 {
 	assert( steps >= 0 );
 
-	if( scaling < 0 )
+	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		for(int s = 0; s < steps; s++)
+		// TODO: fix bordering element due to non-64-bits alignment hack
+		float *arr_local = calc_temp_step(arr, w);
+
+		if( scaling < 0 )
 		{
-			arr[4+s*2] *= 1/zeta;
-		}
-	
-		for(int s = 0; s < steps; s++)
-		{
-			arr[5+s*2] *= zeta;
-		}
-	}
-
-	const float coeffs[4] = {delta, gamma, beta, alpha};
-
-	for(int off = 4; off >= 1; off--)
-	{
-		float *out = arr+off;
-
-		const float c = coeffs[off-1];
-
-		for(int s = 0; s < steps; s++)
-		{
-			out[0] += c * (out[-1] + out[+1]);
-
-			out += 2;
-		}
-	}
-
-	if( scaling > 0 )
-	{
-		for(int s = 0; s < steps; s++)
-		{
-			arr[0+s*2] *= 1/zeta;
+			for(int s = 0; s < steps; s++)
+			{
+				arr_local[4+s*2] *= 1/zeta;
+			}
+		
+			for(int s = 0; s < steps; s++)
+			{
+				arr_local[5+s*2] *= zeta;
+			}
 		}
 
-		for(int s = 0; s < steps; s++)
+		const float coeffs[4] = {delta, gamma, beta, alpha};
+
+		for(int off = 4; off >= 1; off--)
 		{
-			arr[1+s*2] *= zeta;
+			float *out = arr_local+off;
+
+			const float c = coeffs[off-1];
+
+			for(int s = 0; s < steps; s++)
+			{
+				out[0] += c * (out[-1] + out[+1]);
+
+				out += 2;
+			}
+		}
+
+		if( scaling > 0 )
+		{
+			for(int s = 0; s < steps; s++)
+			{
+				arr_local[0+s*2] *= 1/zeta;
+			}
+
+			for(int s = 0; s < steps; s++)
+			{
+				arr_local[1+s*2] *= zeta;
+			}
 		}
 	}
 }
@@ -1310,61 +1375,90 @@ void accel_lift_op4s_main_pb_s(
 
 	assert( steps <= (BANK_SIZE - 4 + ( is_aligned_8(arr) ? 0 : -2 ) ) / 2 );
 
-	// FIXME: const
-	int size = 2*steps+4;
-
-	float *addr = arr;
-	
-	//WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, 2*steps+4) );
-
-	// FIXME: fix dma transfers of addr not aligned to 64 bits
-	unsigned int pb_offset = 0;
-	if( !is_aligned_8(addr) )
-	{
-		// HACK: accessing outside of my memory!
-		addr--;
-		size += 2;
-		pb_offset++;
-	}
+	// HACK: due to fixing DMA transfers of addr not aligned to 64-bits => accessing outside of my memory!
+	const int size = 2*steps + 4 + ( is_aligned_8(arr) ? 0 : 2 );
+	float *addr = arr + ( is_aligned_8(arr) ? 0 : -1 );
+	const unsigned int pb_offset = ( is_aligned_8(arr) ? 0 : +1 );
 
 	assert( is_aligned_8(addr) );
 	assert( is_even(size) );
+
 #ifndef USE_DMA
-	WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), addr, size) );
+	// FIXME: remove
+	WAL_CHECK( wal_mb2dmem(worker[0], 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), addr, size) );
 #else /* USE_DMA */
-	const uint8_t ch = 0;
-	WAL_CHECK( wal_dma_configure(worker, ch, addr, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
-	WAL_CHECK( wal_dma_start(worker, ch, WAL_DMA_REQ_RD) );
-	while( wal_dma_isbusy(worker, WAL_DMA_MASK(ch)) )
-		;
+	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	{
+		// channel w according to worker ID; but each worker has independent DMA channels, thus this is not necessary
+		const uint8_t ch = w;
+		float *addr_local = addr + (dwt_util_global_temp_step * w); // FIXME: use function from top
+
+		WAL_CHECK( wal_dma_configure(worker[w], ch, addr_local, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
+		WAL_CHECK( wal_dma_start(worker[w], ch, WAL_DMA_REQ_RD) );
+	}
+
+	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	{
+		// HACK: wait for completing memory transfers on all 8 channels; but each worker has independent DMA channels
+		while( wal_dma_isbusy(worker[w], /*WAL_DMA_MASK(ch)*/ 0x0f) )
+			;
+	}
 #endif /* USE_DMA */
 
 	const uint32_t steps_32 = (uint32_t)steps;
 	const uint32_t pb_offset_32 = (uint32_t)pb_offset;
-	WAL_CHECK( wal_mb2cmem(worker, WAL_CMEM_MB2PB, 0x01, &steps_32, 1) );
-	WAL_CHECK( wal_mb2cmem(worker, WAL_CMEM_MB2PB, 0x02, &pb_offset_32, 1) );
-	WAL_CHECK( wal_mb2pb(worker, 1) );
-	WAL_CHECK( wal_pb2mb(worker, NULL) );
 
-	//WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JK_DMEM_A, WAL_BANK_POS(0,0), arr, 2*steps+4) );
+	// start BCE computations
+	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	{
+		WAL_CHECK( wal_mb2cmem(worker[w], WAL_CMEM_MB2PB, 0x01, &steps_32, 1) );
+		WAL_CHECK( wal_mb2cmem(worker[w], WAL_CMEM_MB2PB, 0x02, &pb_offset_32, 1) );
+
+		WAL_CHECK( wal_mb2pb(worker[w], 1) );
+	}
+
+	// wait for finishing every BCE computation
+	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	{
+		WAL_CHECK( wal_pb2mb(worker[w], NULL) );
+	}
 
 	assert( is_aligned_8(addr) );
 	assert( is_even(size) );
+
 #ifndef USE_DMA
-	WAL_CHECK( wal_dmem2mb(worker, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), addr, size) );
+	// FIXME: remove
+	WAL_CHECK( wal_dmem2mb(worker[0], 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), addr, size) );
 #else /* USE_DMA */
-	WAL_CHECK( wal_dma_configure(worker, ch, addr, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
-	WAL_CHECK( wal_dma_start(worker, ch, WAL_DMA_REQ_WR) );
-	while( wal_dma_isbusy(worker, WAL_DMA_MASK(ch)) )
-		;
+	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	{
+		const uint8_t ch = w;
+		float *addr_local = addr + (dwt_util_global_temp_step * w); // FIXME: use function from top
+
+		// FIXME: this would suffice configure once!
+		WAL_CHECK( wal_dma_configure(worker[w], ch, addr_local, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
+		WAL_CHECK( wal_dma_start(worker[w], ch, WAL_DMA_REQ_WR) );
+	}
+
+	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	{
+		while( wal_dma_isbusy(worker[w], /*WAL_DMA_MASK(ch)*/ 0x0f) )
+			;
+	}
 #endif /* USE_DMA */
 
-	// HACK: why +1? should be "size" only
-	flush_cache(addr, size+1);
+	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	{
+		float *addr_local = addr + (dwt_util_global_temp_step * w); // FIXME: use function from top
+
+		// HACK: why +1? should be "size" only
+		flush_cache(addr_local, size+1);
+	}
 #else /* microblaze */
 	// fallback
 	accel_lift_op4s_main_s(arr, steps, alpha, beta, gamma, delta, zeta, scaling);
 #endif /* microblaze */
+
 	FUNC_END;
 }
 
@@ -1382,60 +1476,70 @@ void accel_lift_op4s_prolog_s(
 {
 	assert( N-off >= 4 );
 
-	if(off)
+#ifdef NDEBUG
+	UNUSED(N);
+#endif
+
+	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		// inv-scaling
-		if( scaling < 0 )
-		{
-			// TODO
-		}
-
- 		// alpha
-		arr[1] += alpha*(arr[0]+arr[2]);
-		arr[3] += alpha*(arr[2]+arr[4]);
-
-		// beta
-		arr[0] += 2*beta*(arr[1]);
-		arr[2] += beta*(arr[1]+arr[3]);
-	
-		// gamma
-		arr[1] += gamma*(arr[0]+arr[2]);
-	
-		// delta
-		arr[0] += 2*delta*(arr[1]);
-
-		// scaling
-		if( scaling > 0)
-		{
-			arr[0] *= zeta;
-		}
-	}
-	else
-	{
-		// inv-scaling
-		if( scaling < 0 )
-		{
-			arr[0] *= 1/zeta;
-			arr[1] *= zeta;
-			arr[2] *= 1/zeta;
-			arr[3] *= zeta;
-		}
-
-		// alpha
-		arr[0] += 2*alpha*(arr[1]);
-		arr[2] += alpha*(arr[1]+arr[3]);
+		// TODO: fix bordering element due to non-64-bits alignment hack
+		float *arr_local = calc_temp_step(arr, w);
 		
-		// beta
-		arr[1] += beta*(arr[0]+arr[2]);
-	
-		// gamma
-		arr[0] += 2*gamma*(arr[1]);
-	
-		// delta
-		// none
+		if(off)
+		{
+			// inv-scaling
+			if( scaling < 0 )
+			{
+				// TODO
+			}
 
-		// scaling
-		// none
+			// alpha
+			arr_local[1] += alpha*(arr_local[0]+arr_local[2]);
+			arr_local[3] += alpha*(arr_local[2]+arr_local[4]);
+
+			// beta
+			arr_local[0] += 2*beta*(arr_local[1]);
+			arr_local[2] += beta*(arr_local[1]+arr_local[3]);
+		
+			// gamma
+			arr_local[1] += gamma*(arr_local[0]+arr_local[2]);
+		
+			// delta
+			arr_local[0] += 2*delta*(arr_local[1]);
+
+			// scaling
+			if( scaling > 0)
+			{
+				arr_local[0] *= zeta;
+			}
+		}
+		else
+		{
+			// inv-scaling
+			if( scaling < 0 )
+			{
+				arr_local[0] *= 1/zeta;
+				arr_local[1] *= zeta;
+				arr_local[2] *= 1/zeta;
+				arr_local[3] *= zeta;
+			}
+
+			// alpha
+			arr_local[0] += 2*alpha*(arr_local[1]);
+			arr_local[2] += alpha*(arr_local[1]+arr_local[3]);
+			
+			// beta
+			arr_local[1] += beta*(arr_local[0]+arr_local[2]);
+		
+			// gamma
+			arr_local[0] += 2*gamma*(arr_local[1]);
+		
+			// delta
+			// none
+
+			// scaling
+			// none
+		}
 	}
 }
 
@@ -1453,68 +1557,74 @@ void accel_lift_op4s_epilog_s(
 {
 	assert( N-off >= 4 );
 
-	if( is_even(N-off) )
+	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		// inv-scaling
-		if( scaling < 0 )
+		// TODO: fix bordering element due to non-64-bits alignment hack
+		float *arr_local = calc_temp_step(arr, w);
+
+		if( is_even(N-off) )
 		{
-			// TODO
+			// inv-scaling
+			if( scaling < 0 )
+			{
+				// TODO
+			}
+
+			// alpha
+			// none
+
+			// beta
+			arr_local[N-1] += 2*beta*(arr_local[N-2]);
+
+			// gamma
+			arr_local[N-2] += gamma*(arr_local[N-1]+arr_local[N-3]);
+
+			// delta
+			arr_local[N-1] += 2*delta*(arr_local[N-2]);
+			arr_local[N-3] += delta*(arr_local[N-4]+arr_local[N-2]);
+
+			// scaling
+			if( scaling > 0 )
+			{
+				// FIXME: this is dependend on "off"
+				arr_local[N-4] *= 1/zeta;
+				arr_local[N-3] *= zeta;
+				arr_local[N-2] *= 1/zeta;
+				arr_local[N-1] *= zeta;
+			}
 		}
-
-		// alpha
-		// none
-
-		// beta
-		arr[N-1] += 2*beta*(arr[N-2]);
-
-		// gamma
-		arr[N-2] += gamma*(arr[N-1]+arr[N-3]);
-
-		// delta
-		arr[N-1] += 2*delta*(arr[N-2]);
-		arr[N-3] += delta*(arr[N-4]+arr[N-2]);
-
-		// scaling
-		if( scaling > 0 )
+		else /* is_odd(N-off) */
 		{
-			// FIXME: this is dependend on "off"
-			arr[N-4] *= 1/zeta;
-			arr[N-3] *= zeta;
-			arr[N-2] *= 1/zeta;
-			arr[N-1] *= zeta;
-		}
-	}
-	else /* is_odd(N-off) */
-	{
-		// inv-scaling
-		if( scaling < 0 )
-		{
-			arr[N-1] *= 1/zeta;
-		}
+			// inv-scaling
+			if( scaling < 0 )
+			{
+				arr_local[N-1] *= 1/zeta;
+			}
 
-		// alpha
-		arr[N-1] += 2*alpha*(arr[N-2]);
+			// alpha
+			arr_local[N-1] += 2*alpha*(arr_local[N-2]);
 
-		// beta
-		arr[N-2] += beta*(arr[N-1]+arr[N-3]);
+			// beta
+			arr_local[N-2] += beta*(arr_local[N-1]+arr_local[N-3]);
 
-		// gamma
-		arr[N-1] += 2*gamma*(arr[N-2]);
-		arr[N-3] += gamma*(arr[N-2]+arr[N-4]);
+			// gamma
+			arr_local[N-1] += 2*gamma*(arr_local[N-2]);
+			arr_local[N-3] += gamma*(arr_local[N-2]+arr_local[N-4]);
 
-		// delta
-		arr[N-2] += delta*(arr[N-1]+arr[N-3]);
-		arr[N-4] += delta*(arr[N-5]+arr[N-3]);
+			// delta
+			arr_local[N-2] += delta*(arr_local[N-1]+arr_local[N-3]);
+			arr_local[N-4] += delta*(arr_local[N-5]+arr_local[N-3]);
 
-		// scaling
-		if( scaling > 0 )
-		{
-			// FIXME: this is dependend on "off"
-			arr[N-5] *= 1/zeta;
-			arr[N-4] *= zeta;
-			arr[N-3] *= 1/zeta;
-			arr[N-2] *= zeta;
-			arr[N-1] *= 1/zeta;
+			// scaling
+			if( scaling > 0 )
+			{
+				// FIXME: this is dependend on "off"
+				arr_local[N-5] *= 1/zeta;
+				arr_local[N-4] *= zeta;
+				arr_local[N-3] *= 1/zeta;
+				arr_local[N-2] *= zeta;
+				arr_local[N-1] *= 1/zeta;
+			}
 		}
 	}
 }
@@ -1536,157 +1646,163 @@ void accel_lift_op4s_short_s(
 {
 	assert( N-off < 4 );
 
-	if(off)
+	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		if( N == 2 )
+		// TODO: fix bordering element due to non-64-bits alignment hack
+		float *arr_local = calc_temp_step(arr, w);
+
+		if(off)
 		{
-			// inv-scaling
-			if( scaling < 0 )
+			if( N == 2 )
 			{
-				// TODO
+				// inv-scaling
+				if( scaling < 0 )
+				{
+					// TODO
+				}
+
+				// alpha
+				arr_local[1] += 2*alpha*(arr_local[0]);
+
+				// beta
+				arr_local[0] += 2*beta*(arr_local[1]);
+
+				// gamma
+				arr_local[1] += 2*gamma*(arr_local[0]);
+
+				// delta
+				arr_local[0] += 2*delta*(arr_local[1]);
+
+				// scaling
+				if( scaling > 0 )
+				{
+					arr_local[0] *= zeta;
+					arr_local[1] *= 1/zeta;
+				}
 			}
-
-			// alpha
-			arr[1] += 2*alpha*(arr[0]);
-
-			// beta
-			arr[0] += 2*beta*(arr[1]);
-
-			// gamma
-			arr[1] += 2*gamma*(arr[0]);
-
-			// delta
-			arr[0] += 2*delta*(arr[1]);
-
-			// scaling
-			if( scaling > 0 )
+			else
+			if( N == 3 )
 			{
-				arr[0] *= zeta;
-				arr[1] *= 1/zeta;
+				// inv-scaling
+				if( scaling < 0 )
+				{
+					// TODO
+				}
+
+				// alpha
+				arr_local[1] += alpha*(arr_local[0]+arr_local[2]);
+
+				// beta
+				arr_local[0] += 2*beta*(arr_local[1]);
+				arr_local[2] += 2*beta*(arr_local[1]);
+
+				// gamma
+				arr_local[1] += gamma*(arr_local[0]+arr_local[2]);
+
+				// delta
+				arr_local[0] += 2*delta*(arr_local[1]);
+				arr_local[2] += 2*delta*(arr_local[1]);
+
+				// scaling
+				if( scaling > 0 )
+				{
+					arr_local[0] *= zeta;
+					arr_local[1] *= 1/zeta;
+					arr_local[2] *= zeta;
+				}
+			}
+			else /* N == 4 */
+			{
+				// inv-scaling
+				if( scaling < 0 )
+				{
+					// TODO
+				}
+
+				// alpha
+				arr_local[1] += alpha*(arr_local[0]+arr_local[2]);
+				arr_local[3] += 2*alpha*(arr_local[2]);
+
+				// beta
+				arr_local[0] += 2*beta*(arr_local[1]);
+				arr_local[2] += beta*(arr_local[1]+arr_local[3]);
+
+				// gamma
+				arr_local[1] += gamma*(arr_local[0]+arr_local[2]);
+				arr_local[3] += 2*gamma*(arr_local[2]);
+
+				// delta
+				arr_local[0] += 2*delta*(arr_local[1]);
+				arr_local[2] += delta*(arr_local[1]+arr_local[3]);
+
+				// scaling
+				if( scaling > 0 )
+				{
+					arr_local[0] *= zeta;
+					arr_local[1] *= 1/zeta;
+					arr_local[2] *= zeta;
+					arr_local[3] *= 1/zeta;
+				}
 			}
 		}
-		else
-		if( N == 3 )
+		else /* !off */
 		{
-			// inv-scaling
-			if( scaling < 0 )
+			if( N == 2 )
 			{
-				// TODO
+				// inv-scaling
+				if( scaling < 0 )
+				{
+					arr_local[0] *= 1/zeta;
+					arr_local[1] *= zeta;
+				}
+
+				// alpha
+				arr_local[0] += 2*alpha*(arr_local[1]);
+
+				// beta
+				arr_local[1] += 2*beta*(arr_local[0]);
+
+				// gamma
+				arr_local[0] += 2*gamma*(arr_local[1]);
+
+				// delta
+				arr_local[1] += 2*delta*(arr_local[0]);
+
+				// scaling
+				if( scaling > 0 )
+				{
+					// TODO
+				}
 			}
-
-			// alpha
-			arr[1] += alpha*(arr[0]+arr[2]);
-
-			// beta
-			arr[0] += 2*beta*(arr[1]);
-			arr[2] += 2*beta*(arr[1]);
-
-			// gamma
-			arr[1] += gamma*(arr[0]+arr[2]);
-
-			// delta
-			arr[0] += 2*delta*(arr[1]);
-			arr[2] += 2*delta*(arr[1]);
-
-			// scaling
-			if( scaling > 0 )
+			else /* N == 3 */
 			{
-				arr[0] *= zeta;
-				arr[1] *= 1/zeta;
-				arr[2] *= zeta;
-			}
-		}
-		else /* N == 4 */
-		{
-			// inv-scaling
-			if( scaling < 0 )
-			{
-				// TODO
-			}
+				// inv-scaling
+				if( scaling < 0 )
+				{
+					arr_local[0] *= 1/zeta;
+					arr_local[1] *= zeta;
+					arr_local[2] *= 1/zeta;
+				}
 
-			// alpha
-			arr[1] += alpha*(arr[0]+arr[2]);
-			arr[3] += 2*alpha*(arr[2]);
+				// alpha
+				arr_local[0] += 2*alpha*(arr_local[1]);
+				arr_local[2] += 2*alpha*(arr_local[1]);
 
-			// beta
-			arr[0] += 2*beta*(arr[1]);
-			arr[2] += beta*(arr[1]+arr[3]);
+				// beta
+				arr_local[1] += beta*(arr_local[0]+arr_local[2]);
 
-			// gamma
-			arr[1] += gamma*(arr[0]+arr[2]);
-			arr[3] += 2*gamma*(arr[2]);
+				// gamma
+				arr_local[0] += 2*gamma*(arr_local[1]);
+				arr_local[2] += 2*gamma*(arr_local[1]);
 
-			// delta
-			arr[0] += 2*delta*(arr[1]);
-			arr[2] += delta*(arr[1]+arr[3]);
+				// delta
+				arr_local[1] += delta*(arr_local[0]+arr_local[2]);
 
-			// scaling
-			if( scaling > 0 )
-			{
-				arr[0] *= zeta;
-				arr[1] *= 1/zeta;
-				arr[2] *= zeta;
-				arr[3] *= 1/zeta;
-			}
-		}
-	}
-	else /* !off */
-	{
-		if( N == 2 )
-		{
-			// inv-scaling
-			if( scaling < 0 )
-			{
-				arr[0] *= 1/zeta;
-				arr[1] *= zeta;
-			}
-
-			// alpha
-			arr[0] += 2*alpha*(arr[1]);
-
-			// beta
-			arr[1] += 2*beta*(arr[0]);
-
-			// gamma
-			arr[0] += 2*gamma*(arr[1]);
-
-			// delta
-			arr[1] += 2*delta*(arr[0]);
-
-			// scaling
-			if( scaling > 0 )
-			{
-				// TODO
-			}
-		}
-		else /* N == 3 */
-		{
-			// inv-scaling
-			if( scaling < 0 )
-			{
-				arr[0] *= 1/zeta;
-				arr[1] *= zeta;
-				arr[2] *= 1/zeta;
-			}
-
-			// alpha
-			arr[0] += 2*alpha*(arr[1]);
-			arr[2] += 2*alpha*(arr[1]);
-
-			// beta
-			arr[1] += beta*(arr[0]+arr[2]);
-
-			// gamma
-			arr[0] += 2*gamma*(arr[1]);
-			arr[2] += 2*gamma*(arr[1]);
-
-			// delta
-			arr[1] += delta*(arr[0]+arr[2]);
-
-			// scaling
-			if( scaling > 0 )
-			{
-				// TODO
+				// scaling
+				if( scaling > 0 )
+				{
+					// TODO
+				}
 			}
 		}
 	}
@@ -1718,7 +1834,7 @@ void accel_lift_op4s_s(
 		if(1 == dwt_util_global_accel_type[0])
 		{
 			const int max_inner_len = to_even(BANK_SIZE) - 4 + ( is_aligned_8(arr+off) ? 0 : -2);
-			const int inner_len = to_even(len-off) - 4; // FIXME: maybe -2?
+			const int inner_len = to_even(len-off) - 4; // FIXME: maybe -2? try on odd lengths and another decompositions like small image in big one... opencv example should test it
 			const int blocks = inner_len / max_inner_len;
 			// full length blocks
 			for(int b = 0; b < blocks; b++)
@@ -1772,6 +1888,7 @@ void dwt_cdf97_f_ex_stride_s(
 	assert( N >= 0 && NULL != src && NULL != dst_l && NULL != dst_h && NULL != tmp && 0 != stride );
 
 	// fix for small N
+	// FIXME: this should be parallel too!
 	if(N < 2)
 	{
 		if(1 == N)
@@ -1780,13 +1897,27 @@ void dwt_cdf97_f_ex_stride_s(
 	}
 
 	// copy src into tmp
-	dwt_util_memcpy_stride_s(tmp, sizeof(float), src, stride, N);
+	for(int w = 0; w < dwt_util_get_num_workers(); w++)
+	{
+		float *tmp_local = calc_temp_step(tmp, w);
+		const float *src_local = calc_data_step_const(src, w);
 
+		dwt_util_memcpy_stride_s(tmp_local, sizeof(float), src_local, stride, N);
+	}
+
+	// TODO: fix bordering element due to non-64-bits alignment hack in tmp[]
 	accel_lift_op4s_s(tmp, 1, N, -dwt_cdf97_p1_s, dwt_cdf97_u1_s, -dwt_cdf97_p2_s, dwt_cdf97_u2_s, dwt_cdf97_s1_s, +1);
 
 	// copy tmp into dst
-	dwt_util_memcpy_stride_s(dst_l, stride, tmp+0, 2*sizeof(float),  ceil_div2(N));
-	dwt_util_memcpy_stride_s(dst_h, stride, tmp+1, 2*sizeof(float), floor_div2(N));
+	for(int w = 0; w < dwt_util_get_num_workers(); w++)
+	{
+		float *tmp_local = calc_temp_step(tmp, w);
+		float *dst_l_local = calc_data_step(dst_l, w);
+		float *dst_h_local = calc_data_step(dst_h, w);
+
+		dwt_util_memcpy_stride_s(dst_l_local, stride, tmp_local+0, 2*sizeof(float),  ceil_div2(N));
+		dwt_util_memcpy_stride_s(dst_h_local, stride, tmp_local+1, 2*sizeof(float), floor_div2(N));
+	}
 }
 
 void dwt_cdf53_f_ex_stride_s(
@@ -2020,6 +2151,7 @@ void dwt_cdf97_i_ex_stride_s(
 	assert( N >= 0 && NULL != src_l && NULL != src_h && NULL != dst && NULL != tmp && 0 != stride );
 
 	// fix for small N
+	// FIXME: this should be parallel too!
 	if(N < 2)
 	{
 		if(1 == N)
@@ -2028,13 +2160,28 @@ void dwt_cdf97_i_ex_stride_s(
 	}
 
 	// copy src into tmp
-	dwt_util_memcpy_stride_s(tmp+0, 2*sizeof(float), src_l, stride,  ceil_div2(N));
-	dwt_util_memcpy_stride_s(tmp+1, 2*sizeof(float), src_h, stride, floor_div2(N));
+	for(int w = 0; w < dwt_util_get_num_workers(); w++)
+	{
+		float *tmp_local = calc_temp_step(tmp, w);
+		const float *src_l_local = calc_data_step_const(src_l, w);
+		const float *src_h_local = calc_data_step_const(src_h, w);
 
+		dwt_util_memcpy_stride_s(tmp_local+0, 2*sizeof(float), src_l_local, stride,  ceil_div2(N));
+		dwt_util_memcpy_stride_s(tmp_local+1, 2*sizeof(float), src_h_local, stride, floor_div2(N));
+	}
+
+
+	// TODO: fix bordering element due to non-64-bits alignment hack in tmp[]
 	accel_lift_op4s_s(tmp, 0, N, -dwt_cdf97_u2_s, dwt_cdf97_p2_s, -dwt_cdf97_u1_s, dwt_cdf97_p1_s, dwt_cdf97_s1_s, -1);
 
 	// copy tmp into dst
-	dwt_util_memcpy_stride_s(dst, stride, tmp, sizeof(float), N);
+	for(int w = 0; w < dwt_util_get_num_workers(); w++)
+	{
+		float *tmp_local = calc_temp_step(tmp, w);
+		float *dst_local = calc_data_step(dst, w);
+
+		dwt_util_memcpy_stride_s(dst_local, stride, tmp_local, sizeof(float), N);
+	}
 }
 
 void dwt_cdf53_i_ex_stride_s(
@@ -2227,13 +2374,19 @@ void dwt_util_switch_op(
 
 	//WAL_CHECK( wal_bce_jk_sync_operation(worker) );
 
-	WAL_CHECK( wal_reset_worker(worker) );
+	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	{
+		WAL_CHECK( wal_reset_worker(worker[w]) );
+	}
 
 	switch(op)
 	{
 		case DWT_OP_LIFT4SA:
 		{
-			WAL_CHECK( wal_start_operation(worker, WAL_PBID_P0) );
+			for(int w = 0; w < dwt_util_global_total_workers; w++)
+			{
+				WAL_CHECK( wal_start_operation(worker[w], WAL_PBID_P0) );
+			}
 
 			float alpha = -dwt_cdf97_p1_s,
 				beta = dwt_cdf97_u1_s,
@@ -2245,26 +2398,37 @@ void dwt_util_switch_op(
 			// FIXME: for these coeeficients, use memory bank "D"
 			const float coeffs[12] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta, 0.0f};
 			float *addr = dwt_util_allocate_vec_s(size);
-			memcpy((void *)addr, coeffs, size*sizeof(float));
+			if(!addr)
+			{
+				dwt_util_log(LOG_ERR, "Failed to allocate vector of %i floats.\n", size);
+				dwt_util_abort();
+			}
+			dwt_util_copy_vec_s(coeffs, addr, size);
 
 			assert( is_even(size) );
 			assert( is_aligned_8(addr) );
 
-			//WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), coeffs, 11) );
 #ifndef USE_DMA
-			WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JSY_DMEM_B, WAL_BANK_POS(0,0), addr, size) );
+			// FIXME: remove
+			WAL_CHECK( wal_mb2dmem(worker[0], 0, WAL_BCE_JSY_DMEM_B, WAL_BANK_POS(0,0), addr, size) );
 #else
-			WAL_CHECK( wal_dma_configure(worker, 0, addr, 0, WAL_BCE_JSY_DMEM_B, 0, size) );
-			WAL_CHECK( wal_dma_start(worker, 0, WAL_DMA_REQ_RD) );
-			while( wal_dma_isbusy(worker, 0x01) )
-				;
+			for(int w = 0; w < dwt_util_global_total_workers; w++)
+			{
+				WAL_CHECK( wal_dma_configure(worker[w], 0, addr, 0, WAL_BCE_JSY_DMEM_B, 0, size) );
+				WAL_CHECK( wal_dma_start(worker[w], 0, WAL_DMA_REQ_RD) );
+				while( wal_dma_isbusy(worker[w], 0x01) )
+					;
+			}
 #endif
 			free(addr);
 		}
 		break;
 		case DWT_OP_LIFT4SB:
 		{
-			WAL_CHECK( wal_start_operation(worker, WAL_PBID_P1) );
+			for(int w = 0; w < dwt_util_global_total_workers; w++)
+			{
+				WAL_CHECK( wal_start_operation(worker[w], WAL_PBID_P1) );
+			}
 
 			float alpha = -dwt_cdf97_u2_s,
 				beta = dwt_cdf97_p2_s,
@@ -2276,20 +2440,29 @@ void dwt_util_switch_op(
 			// FIXME: for these coeeficients, use memory bank "D"
 			const float coeffs[12] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta, 0.0f};
 			float *addr = dwt_util_allocate_vec_s(size);
-			memcpy(addr, coeffs, size*sizeof(float));
+			if(!addr)
+			{
+				dwt_util_log(LOG_ERR, "Failed to allocate vector of %i floats.\n", size);
+				dwt_util_abort();
+			}
+			dwt_util_copy_vec_s(coeffs, addr, size);
 
 			assert( is_even(size) );
 			assert( is_aligned_8(addr) );
 
-			//WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JK_DMEM_B, WAL_BANK_POS(0,0), coeffs, 11) );
 #ifndef USE_DMA
-			WAL_CHECK( wal_mb2dmem(worker, 0, WAL_BCE_JSY_DMEM_B, WAL_BANK_POS(0,0), addr, size) );
+			// FIXME: remove
+			WAL_CHECK( wal_mb2dmem(worker[0], 0, WAL_BCE_JSY_DMEM_B, WAL_BANK_POS(0,0), addr, size) );
 #else
-			WAL_CHECK( wal_dma_configure(worker, 0, addr, 0, WAL_BCE_JSY_DMEM_B, 0, size) );
-			WAL_CHECK( wal_dma_start(worker, 0, WAL_DMA_REQ_RD) );
-			while( wal_dma_isbusy(worker, 0x01) )
-				;
+			for(int w = 0; w < dwt_util_global_total_workers; w++)
+			{
+				WAL_CHECK( wal_dma_configure(worker[w], 0, addr, 0, WAL_BCE_JSY_DMEM_B, 0, size) );
+				WAL_CHECK( wal_dma_start(worker[w], 0, WAL_DMA_REQ_RD) );
+				while( wal_dma_isbusy(worker[w], 0x01) )
+					;
+			}
 #endif
+			free(addr);
 		}
 		break;
 		default:
@@ -2487,7 +2660,15 @@ void dwt_cdf97_2f_s(
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
 
-	float temp[size_o_big_max];
+	// FIXME: elliminate
+	const int active_workers = dwt_util_get_num_workers();
+
+#ifdef microblaze
+	// FIXME: wrap this assignment
+	dwt_util_global_temp_step = size_o_big_max;
+#endif
+
+	float temp[size_o_big_max*active_workers];
 	if(NULL == temp)
 		abort();
 
@@ -2510,8 +2691,24 @@ void dwt_cdf97_2f_s(
 		const int size_i_src_x = ceil_div_pow2(size_i_big_x, j  );
 		const int size_i_src_y = ceil_div_pow2(size_i_big_y, j  );
 
-		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
-		for(int y = 0; y < size_o_src_y; y++)
+#ifdef microblaze
+		// FIXME: temporarily, only power of two sizes
+		assert( size_o_src_y == pow2_ceil_log2(size_o_src_y) );
+		assert( size_o_src_x == pow2_ceil_log2(size_o_src_x) );
+#endif
+
+		const int threads_segment_y = ceil_div(size_o_src_y, dwt_util_get_num_threads());
+		const int threads_segment_x = ceil_div(size_o_src_x, dwt_util_get_num_threads());
+		const int workers_segment_y = ceil_div(size_o_src_y, dwt_util_get_num_workers());
+		const int workers_segment_x = ceil_div(size_o_src_x, dwt_util_get_num_workers());
+
+#ifdef microblaze
+		// FIXME: wrap this by function
+		dwt_util_global_data_step = (intptr_t)addr2_s(ptr,workers_segment_y,0,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y);
+#endif
+		//#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
+		#pragma omp parallel for private(temp) schedule(static, threads_segment_y)
+		for(int y = 0; y < workers_segment_y; y++)
 			dwt_cdf97_f_ex_stride_s(
 				addr2_s(ptr,y,0,stride_x,stride_y),
 				addr2_s(ptr,y,0,stride_x,stride_y),
@@ -2519,8 +2716,12 @@ void dwt_cdf97_2f_s(
 				temp,
 				size_i_src_x,
 				stride_y);
-		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
-		for(int x = 0; x < size_o_src_x; x++)
+#ifdef microblaze
+		dwt_util_global_data_step = (intptr_t)addr2_s(ptr,0,workers_segment_x,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y);
+#endif
+		//#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
+		#pragma omp parallel for private(temp) schedule(static, threads_segment_x)
+		for(int x = 0; x < /*size_o_src_x/active_workers*/workers_segment_x; x++)
 			dwt_cdf97_f_ex_stride_s(
 				addr2_s(ptr,0,x,stride_x,stride_y),
 				addr2_s(ptr,0,x,stride_x,stride_y),
@@ -2531,7 +2732,8 @@ void dwt_cdf97_2f_s(
 
 		if(zero_padding)
 		{
-			#pragma omp parallel for schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
+			//#pragma omp parallel for schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
+			#pragma omp parallel for schedule(static, threads_segment_y)
 			for(int y = 0; y < size_o_src_y; y++)
 				dwt_zero_padding_f_stride_s(
 					addr2_s(ptr,y,0,stride_x,stride_y),
@@ -2540,7 +2742,8 @@ void dwt_cdf97_2f_s(
 					size_o_dst_x,
 					size_o_src_x-size_o_dst_x,
 					stride_y);
-			#pragma omp parallel for schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
+			//#pragma omp parallel for schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
+			#pragma omp parallel for schedule(static, threads_segment_x)
 			for(int x = 0; x < size_o_src_x; x++)
 				dwt_zero_padding_f_stride_s(
 					addr2_s(ptr,0,x,stride_x,stride_y),
@@ -2813,7 +3016,13 @@ void dwt_cdf97_2i_s(
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
 
-	float temp[size_o_big_max];
+	const int active_workers = dwt_util_get_num_workers();
+
+#ifdef microblaze
+	dwt_util_global_temp_step = size_o_big_max;
+#endif
+
+	float temp[size_o_big_max*active_workers];
 	if(NULL == temp)
 		abort();
 
@@ -2834,8 +3043,24 @@ void dwt_cdf97_2i_s(
 		const int size_i_dst_x = ceil_div_pow2(size_i_big_x, j-1);
 		const int size_i_dst_y = ceil_div_pow2(size_i_big_y, j-1);
 
-		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
-		for(int y = 0; y < size_o_dst_y; y++)
+#ifdef microblaze
+		// FIXME
+		assert( size_o_dst_y == pow2_ceil_log2(size_o_dst_y) );
+		assert( size_o_dst_x == pow2_ceil_log2(size_o_dst_x) );
+#endif
+
+		const int threads_segment_y = ceil_div(size_o_dst_y, dwt_util_get_num_threads());
+		const int threads_segment_x = ceil_div(size_o_dst_x, dwt_util_get_num_threads());
+		const int workers_segment_y = ceil_div(size_o_dst_y, dwt_util_get_num_workers());
+		const int workers_segment_x = ceil_div(size_o_dst_x, dwt_util_get_num_workers());
+
+#ifdef microblaze
+		dwt_util_global_data_step = (intptr_t)addr2_s(ptr,workers_segment_y,0,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y);
+#endif
+
+		//#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
+		#pragma omp parallel for private(temp) schedule(static, threads_segment_y)
+		for(int y = 0; y < workers_segment_y; y++)
 			dwt_cdf97_i_ex_stride_s(
 				addr2_s(ptr,y,0,stride_x,stride_y),
 				addr2_s(ptr,y,size_o_src_x,stride_x,stride_y),
@@ -2843,8 +3068,12 @@ void dwt_cdf97_2i_s(
 				temp,
 				size_i_dst_x,
 				stride_y);
-		#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
-		for(int x = 0; x < size_o_dst_x; x++)
+#ifdef microblaze
+		dwt_util_global_data_step = (intptr_t)addr2_s(ptr,0,workers_segment_x,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y);
+#endif
+		//#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
+		#pragma omp parallel for private(temp) schedule(static, threads_segment_x)
+		for(int x = 0; x < workers_segment_x; x++)
 			dwt_cdf97_i_ex_stride_s(
 				addr2_s(ptr,0,x,stride_x,stride_y),
 				addr2_s(ptr,size_o_src_y,x,stride_x,stride_y),
@@ -2855,14 +3084,16 @@ void dwt_cdf97_2i_s(
 
 		if(zero_padding)
 		{
-			#pragma omp parallel for schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
+			//#pragma omp parallel for schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
+			#pragma omp parallel for schedule(static, threads_segment_y)
 			for(int y = 0; y < size_o_dst_y; y++)
 				dwt_zero_padding_i_stride_s(
 					addr2_s(ptr,y,0,stride_x,stride_y),
 					size_i_dst_x,
 					size_o_dst_x,
 					stride_y);
-			#pragma omp parallel for schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
+			//#pragma omp parallel for schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
+			#pragma omp parallel for schedule(static, threads_segment_x)
 			for(int x = 0; x < size_o_dst_x; x++)
 				dwt_zero_padding_i_stride_s(
 					addr2_s(ptr,0,x,stride_x,stride_y),
@@ -3522,9 +3753,18 @@ int dwt_util_get_max_threads()
 {
 #ifdef _OPENMP
 	return omp_get_max_threads();
-#else
+#else /* _OPENMP */
 	return 1;
-#endif
+#endif /* _OPENMP */
+}
+
+int dwt_util_get_max_workers()
+{
+#ifdef microblaze
+	return dwt_util_global_total_workers;
+#else /* microblaze */
+	return 1;
+#endif /* microblaze */
 }
 
 void dwt_util_set_num_threads(
@@ -3539,10 +3779,39 @@ void dwt_util_set_num_threads(
 #endif
 }
 
+void dwt_util_set_num_workers(
+	int num_workers)
+{
+	assert( num_workers > 0 );
+
+#ifdef microblaze
+	dwt_util_global_active_workers = num_workers;
+#else
+	UNUSED(num_workers);
+#endif
+}
+
 int dwt_util_get_num_threads()
 {
 #ifdef _OPENMP
-	return omp_get_num_threads();
+	int num_threads;
+	#pragma omp parallel
+	{
+		#pragma omp master
+		{
+			num_threads = omp_get_num_threads();
+		}
+	}
+	return num_threads;
+#else
+	return 1;
+#endif
+}
+
+int dwt_util_get_num_workers()
+{
+#ifdef microblaze
+	return dwt_util_global_active_workers;
 #else
 	return 1;
 #endif
@@ -3553,26 +3822,22 @@ void dwt_util_init()
 	FUNC_BEGIN;
 
 #ifdef microblaze
-	WAL_CHECK( wal_init_worker(worker) );
+	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	{
+		WAL_CHECK( wal_init_worker(worker[w]) );
 
-	WAL_CHECK( wal_set_firmware(worker, /*WAL_PBID_P0*/DWT_OP_LIFT4SA, fw_fp01_lift4sa, -1) );
+		WAL_CHECK( wal_set_firmware(worker[w], /*WAL_PBID_P0*/DWT_OP_LIFT4SA, fw_fp01_lift4sa, -1) );
 
-	WAL_CHECK( wal_set_firmware(worker, /*WAL_PBID_P1*/DWT_OP_LIFT4SB, fw_fp01_lift4sb, -1) );
+		WAL_CHECK( wal_set_firmware(worker[w], /*WAL_PBID_P1*/DWT_OP_LIFT4SB, fw_fp01_lift4sb, -1) );
 
-	// TODO: call switch_op()
+		// TODO: call switch_op()
 
-	WAL_CHECK( wal_reset_worker(worker) );
+		WAL_CHECK( wal_reset_worker(worker[w]) );
 
-	WAL_CHECK( wal_start_operation(worker, WAL_PBID_P0) );
+		WAL_CHECK( wal_start_operation(worker[w], WAL_PBID_P0) );
+	}
 
 	dwt_util_set_accel(1);
-
-#ifndef USE_DMA
-	printf("DEBUG: Using old-style memory transfer functions.\n");
-#else /* USE_DMA */
-	printf("DEBUG: Usign new DMA memory transfer functions.\n");
-#endif /* USE_DMA */
-
 #endif /* microblaze */
 
 	FUNC_END;
@@ -3583,11 +3848,14 @@ void dwt_util_finish()
 	FUNC_BEGIN;
 
 #ifdef microblaze
-	//WAL_CHECK( wal_mb2pb(worker, 0) );
+	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	{
+		//WAL_CHECK( wal_mb2pb(worker, 0) );
 
-	//WAL_CHECK( wal_bce_jk_sync_operation(worker) );
+		//WAL_CHECK( wal_bce_jk_sync_operation(worker) );
 
-	WAL_CHECK( wal_done_worker(worker) );
+		WAL_CHECK( wal_done_worker(worker[w]) );
+	}
 #endif
 
 	FUNC_END;
@@ -3598,15 +3866,17 @@ void dwt_util_abort()
 	FUNC_BEGIN;
 
 #ifdef microblaze
-	// FIXME: is this legal? although the operation was not running?
-	wal_end_operation(worker);
+	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	{
+		// FIXME: is this legal? although the operation was not running?
+		wal_end_operation(worker[w]);
 
-	// deinitialize worker
-	wal_done_worker(worker);
+		// deinitialize worker
+		wal_done_worker(worker[w]);
+	}
 
 	// abort program
 	abort();
-
 #endif /* microblaze */
 
 	FUNC_END;
@@ -3668,6 +3938,7 @@ int dwt_util_is_normal_or_zero(float a)
 	return dwt_util_is_normal_or_zero_i(&a);
 }
 
+// FIXME: this should not abort the program, only error code should be returned
 void dwt_util_cmp_s_i(const float *a, const float *b)
 {
 	assert( a );
@@ -3688,6 +3959,7 @@ void dwt_util_cmp_s_i(const float *a, const float *b)
 	}
 }
 
+// FIXME: this should not abort the program, only error code should be returned
 void dwt_util_cmp_s(float a, float b)
 {
 	dwt_util_cmp_s_i(&a, &b);
@@ -3734,8 +4006,7 @@ void dwt_util_zero_vec_s(float *addr, int size)
 
 void dwt_util_copy_vec_s(const float *src, float *dst, int size)
 {
-	for(int i=0; i<size; i++)
-		dst[i] = src[i];
+	dwt_util_memcpy_stride_s(dst, sizeof(dst[0]), src, sizeof(src[0]), size);
 
 	for(int i=0; i<size; i++)
 	{
@@ -3761,67 +4032,81 @@ void dwt_util_print_vec_s(const float *addr, int size)
 
 void dwt_util_test()
 {
-#ifdef microblaze
-	printf("TEST: malloc...\n");
-	for(int i = 2; i <= 4096; i *= 2)
+	for(int i = 2; i <= BANK_SIZE; i *= 2)
 	{
-		printf("%i bytes...\n", i);
-		free(dwt_util_allocate_vec_s(i));
+		dwt_util_log(LOG_TEST, "alloc vector of %i floats...\n", i);
+		float *addr = dwt_util_allocate_vec_s(i);
+		if( !addr )
+		{
+			dwt_util_log(LOG_ERR, "Failed to allocate vector of %i floats.\n", i);
+			dwt_util_abort();
+		}
+		free(addr);
+		dwt_util_log(LOG_TEST, "ok\n");
 	}
 
-	printf("TEST: init worker...\n");
-	if( wal_init_worker(worker) )
-		abort();
-	if( wal_reset_worker(worker) )
-		abort();
+#ifdef microblaze
+	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	{
+		dwt_util_log(LOG_TEST, "worker %i: init worker...\n", w);
+		if( wal_init_worker(worker[w]) )
+			abort();
+		if( wal_reset_worker(worker[w]) )
+			abort();
 
-	const int size = BANK_SIZE;
+		const int size = BANK_SIZE;
 
-	printf("TEST: allocating vector of %i floats...\n", size);
-	float *addr = dwt_util_allocate_vec_s(size);
+		dwt_util_log(LOG_TEST, "allocating vector of %i floats...\n", size);
+		float *addr = dwt_util_allocate_vec_s(size);
+		if( !addr )
+			abort();
 
-	dwt_util_generate_vec_s(addr, size);
+		dwt_util_generate_vec_s(addr, size);
 
-	printf("TEST: making copy of vector...\n");
+		dwt_util_log(LOG_TEST, "making copy of vector...\n");
 
-	float *copy = dwt_util_allocate_vec_s(size);
-	dwt_util_copy_vec_s(addr, copy, size);
-	dwt_util_cmp_vec_s(addr, copy, size);
-	
-	printf("TEST: memory transfer to BCE memory using new-style function...\n");
+		float *copy = dwt_util_allocate_vec_s(size);
+		if( !copy )
+			abort();
 
-	if( wal_dma_configure(worker, 0, addr, 0, WAL_BCE_JSY_DMEM_A, 0, size) )
-		abort();
+		dwt_util_copy_vec_s(addr, copy, size);
+		dwt_util_cmp_vec_s(addr, copy, size);
+		
+		dwt_util_log(LOG_TEST, "worker %i: memory transfer to BCE memory using new-style function...\n", w);
 
-	if( wal_dma_start(worker, 0, WAL_DMA_REQ_RD) )
-		abort();
-	while( wal_dma_isbusy(worker, 0x1) )
-		;
+		if( wal_dma_configure(worker[w], 0, addr, 0, WAL_BCE_JSY_DMEM_A, 0, size) )
+			abort();
 
-	printf("TEST: zeroing memory...\n");
+		if( wal_dma_start(worker[w], 0, WAL_DMA_REQ_RD) )
+			abort();
+		while( wal_dma_isbusy(worker[w], 0x1) )
+			;
 
-	dwt_util_zero_vec_s(addr, size);
+		dwt_util_log(LOG_TEST, "zeroing memory...\n");
 
-	printf("TEST: memory transfer from BCE memory using new-style function...\n");
+		dwt_util_zero_vec_s(addr, size);
 
-	if( wal_dma_start(worker, 0, WAL_DMA_REQ_WR) )
-		abort();
-	while( wal_dma_isbusy(worker, 0x1) )
-		;
+		dwt_util_log(LOG_TEST, "worker %i: memory transfer from BCE memory using new-style function...\n", w);
 
-	printf("TEST: flushing cache...\n");
+		if( wal_dma_start(worker[w], 0, WAL_DMA_REQ_WR) )
+			abort();
+		while( wal_dma_isbusy(worker[w], 0x1) )
+			;
 
-	flush_cache(addr, size);
+		dwt_util_log(LOG_TEST, "flushing cache...\n");
 
-	printf("TEST: comparing with original sequence...\n");
+		flush_cache(addr, size);
 
-	dwt_util_cmp_vec_s(addr, copy, size);
+		dwt_util_log(LOG_TEST, "comparing with original sequence...\n");
 
-	printf("TEST: done worker...\n");
-	
-	wal_done_worker(worker);
+		dwt_util_cmp_vec_s(addr, copy, size);
 
-	printf("TEST: test done\n");
+		dwt_util_log(LOG_TEST, "worker %i: calling done worker...\n", w);
+		
+		wal_done_worker(worker[w]);
+
+		dwt_util_log(LOG_TEST, "all tests done\n");
+	}
 #endif
 }
 
@@ -3830,7 +4115,7 @@ int dwt_util_vfprintf(FILE *stream, const char *format, va_list ap)
 	return vfprintf(stream, format, ap);
 }
 
-int vprintf(const char *format, va_list ap)
+int dwt_util_vprintf(const char *format, va_list ap)
 {
 	return dwt_util_vfprintf(stdout, format, ap);
 }
@@ -3851,38 +4136,27 @@ int dwt_util_printf(const char *format, ...)
 	va_list ap;
 
 	va_start(ap, format);
-	int ret = dwt_util_vfprintf(stdout, format, ap);
+	int ret = dwt_util_vprintf(format, ap);
 	va_end(ap);
 
 	return ret;
 }
 
-/**
- * Log levels for @ref dwt_util_log function.
- */
-enum dwt_util_loglevel {
-	LOG_DBG,
-	LOG_INFO,
-	LOG_WARN,
-	LOG_ERR,
-};
-
-/**
- * @brief Formatted output.
- */
 int dwt_util_log(
-	enum dwt_util_loglevel level,	///< log level
-	const char *format,		///< format string that specifies how subsequent arguments re converted for output
-	...)				///< the subsequent arguments
+	enum dwt_util_loglevel level,
+	const char *format,
+	...)
 {
 	int ret = 0;
 	FILE *stream = stderr;
 
 	const char *prefix[] = {
+		[LOG_NONE] = "",
 		[LOG_DBG]  = "DEBUG: ",
 		[LOG_INFO] = "INFO: ",
 		[LOG_WARN] = "WARNING: ",
 		[LOG_ERR]  = "ERROR: ",
+		[LOG_TEST] = "TEST: ",
 	};
 
 	ret += dwt_util_fprintf(stream, prefix[level]);
@@ -3892,6 +4166,8 @@ int dwt_util_log(
 	va_start(ap, format);
 	ret += dwt_util_vfprintf(stream, format, ap);
 	va_end(ap);
+
+	fflush(stream);
 
 	return ret;
 }
