@@ -805,22 +805,24 @@ int dwt_util_get_max_workers();
  * @warning experimental
  */
 void dwt_util_set_num_threads(
-	int num_threads);
+	int num_threads		///< the number of threads
+);
 
 /**
  * @brief Set the number of active numbers.
  */
 void dwt_util_set_num_workers(
-	int num_workers);
+	int num_workers		///< the number of workers
+);
 
 /**
- * @brief Enable block-acceleration using workers in UTIA EdkDSP platform.
+ * @brief Enable block-acceleration using workers in UTIA ASVP platform.
  *
  * @param[in] accel_type Means
  *   @li 0 for C implementation,
- *   @li 1 for BCE implementation if available (EdkDSP platform),
- *   @li 2 for empty implementation (for performance measurement).
- *   @li 3 (undocumented) TODO
+ *   @li 1 for BCE implementation if available (ASVP platform),
+ *   @li 2 for empty implementation (for performance measurement),
+ *   @li 3 for test BCE implementation on whole data vector (ASVP platform).
  *
  * @warning highly experimental
  */
@@ -914,54 +916,90 @@ void dwt_util_abort();
 /**
  * @brief Actively waits the specified number of milliseconds.
  */
-void dwt_util_wait(int ms);
+void dwt_util_wait(
+	int ms	///< the number of milliseconds
+);
 
 /**
  * @brief Allocate vector of @e size floats.
+ *
+ * Allocate vector of given size that have to be even. Allocated memory has alignment on 64-bits boundary.
+ *
+ * @return Pointer to allocated memory that is 64-bits aligned.
  */
-float *dwt_util_allocate_vec_s(int size);
+float *dwt_util_allocate_vec_s(
+	int size	///< the number of elements (floats) to allocate, must be even
+);
 
 /**
  * @brief Fill vector of floats with simple sequence. Useful for testing.
  */
-void dwt_util_generate_vec_s(float *addr, int size);
+void dwt_util_generate_vec_s(
+	float *addr,	///< pointer to the vector
+	int size	///< number of vector elements
+);
 
 /**
  * @brief Fill vector with zeros.
  */
-void dwt_util_zero_vec_s(float *addr, int size);
+void dwt_util_zero_vec_s(
+	float *addr,	///< pointer to the vector
+	int size	///< number of vector elements
+);
 
 /**
  * @brief Copy vector of given size and check if values was transferred correctly.
  */
-void dwt_util_copy_vec_s(const float *src, float *dst, int size);
+void dwt_util_copy_vec_s(
+	const float *src,	///< source vector
+	float *dst,		///< destination vector
+	int size		///< number of vector elements
+);
 
 /**
  * @brief Compare two vectors.
  * 
  * @warning highly experimental
  */
-void dwt_util_cmp_vec_s(const float *a, const float *b, int size);
+void dwt_util_cmp_vec_s(
+	const float *a,		///< first vector
+	const float *b,		///< second vector
+	int size		///< number of vectors' elements
+);
 
 /**
  * @brief Replacement for @p vfprintf.
  */
-int dwt_util_vfprintf(FILE *stream, const char *format, va_list ap);
+int dwt_util_vfprintf(
+	FILE *stream,		///< output stream
+	const char *format,	///< format with same meaning like in @p printf function
+	va_list ap		///< @p va_list encapsulating variable number of arguments
+);
 
 /**
  * @brief Replacement for @p vprintf.
  */
-int dwt_util_vprintf(const char *format, va_list ap);
+int dwt_util_vprintf(
+	const char *format,	///< format with same meaning like in @p printf function
+	va_list ap		///< @p va_list encapsulating variable number of arguments
+);
 
 /**
  * @brief Replacement for @p fprintf.
  */
-int dwt_util_fprintf(FILE *stream, const char *format, ...);
+int dwt_util_fprintf(
+	FILE *stream,		///< output stream
+	const char *format,	///< format with same meaning like in @p printf function
+	...			///< variable number of arguments
+);
 
 /**
  * @brief Replacement for @p printf.
  */
-int dwt_util_printf(const char *format, ...);
+int dwt_util_printf(
+	const char *format,	///< format with same meaning like in @p printf function
+	...			///< variable number of arguments
+);
 
 /**
  * Log levels for @ref dwt_util_log function.

@@ -7,7 +7,7 @@
  *
  * The library implements fast wavelet transform algorithm using lifting scheme.
  * Biorthogonal spline wavelets also known as Cohen-Daubechies-Feauveau wavelets
- * of order of 4 (with 4 vanishing moments) were used. The library is
+ * of order of 4 and 2 (with 4 and 2 vanishing moments) were used. The library is
  * implemented in C language, a demonstration application written in C++ and
  * employing OpenCV library is enclosed.
  *

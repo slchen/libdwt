@@ -1,1 +1,0 @@
-* strange, freezes when NDEBUG is not defined at a time when including <assert.h>

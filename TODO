@@ -1,7 +1,7 @@
 * unit tests
 * SIMD support
 * more wavelets (Haar)
-* more data types (int)
+* more data types (integer, fixed point)
 * performance measurement
 * more example applications
 * more effective lifting implementation (take a look at another implementations, e.g. OpenJPEG or JasPer)
@@ -14,12 +14,14 @@
 * use Par4All tool
 * tiling (e.g., as in JPEG 2000)
 * remove "lib" prefix pro source file names
-* group lifting steps into one for-loop (suitable for SIMD implementation and UTIA EdkDSP platform)
+* group lifting steps into one for-loop (suitable for SIMD implementation and UTIA ASVP platform)
 * 2D DWT: single-loop approach (iteration of horizontal part is immediately fed into iteration of vertical part)
 * memory access through incremented pointers instead of indexed arrays
 * cache optimizations (stride should be prime?)
 * use size_t, ssize_t, etc. instead of unsigned int, int, ...
-* EdkDSP: upload new data when waiting for preceding operation (use memory banks 0/1)
 * 3D data support
-* BCEv2 with DMA
 * ARM support
+* ASVP: upload new data when waiting for preceding operation (use memory banks 0/1)
+* ASVP: number of workers should be adjustable by environment variable like number of threads in OpenMP
+* ASVP: compile never cross compiler (GCC for microblaze)
+* ASVP: optimize firmwares

@@ -1,7 +1,11 @@
-.PHONY: clean
+include ../common.mk
+
+.PHONY: all
+all: html
 
 html:
-	doxygen Doxyfile
+	PACKAGE_VERSION=$(PACKAGE_VERSION) doxygen Doxyfile
 
+.PHONY: clean
 clean:
 	-$(RM) -r html

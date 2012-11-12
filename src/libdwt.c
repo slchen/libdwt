@@ -5,22 +5,23 @@
  */
 #include "libdwt.h"
 
-#define DEBUG_VERBOSE
-#define USE_DMA
+//#define DEBUG_VERBOSE
 
 #define STRING(x) #x
 
 #ifdef NDEBUG
 	/* Release build */
 	#undef DEBUG
+
 	#define FUNC_BEGIN
 	#define FUNC_END
 #else
 	/* Debug build */
 	#define DEBUG
+
 	#ifdef DEBUG_VERBOSE
-		#define FUNC_BEGIN printf("DEBUG: %s ENTRY\n", __FUNCTION__);
-		#define FUNC_END printf("DEBUG: %s EXIT\n", __FUNCTION__);
+		#define FUNC_BEGIN dwt_util_log(LOG_DBG, "%s ENTRY\n", __FUNCTION__)
+		#define FUNC_END   dwt_util_log(LOG_DBG, "%s EXIT\n",  __FUNCTION__)
 	#else
 		#define FUNC_BEGIN
 		#define FUNC_END
@@ -39,9 +40,6 @@
 	WAL_REGISTER_WORKER(worker2, BCE_DMA_GENERIC_4D, bce_dma_cfgtable, 2, 1, 0);
 	WAL_REGISTER_WORKER(worker3, BCE_DMA_GENERIC_4D, bce_dma_cfgtable, 3, 1, 0);
 
-	// FIXME: is woraround for global variables required here? var[2] = { ... };
-	const int dwt_util_global_total_workers = BCE_DMA_CFGTABLE_NUM_ITEMS; ///< total number of workers available
-
 	wal_worker_t *worker[BCE_DMA_CFGTABLE_NUM_ITEMS] = {
 		&worker0_data_structure,
 #if BCE_DMA_CFGTABLE_NUM_ITEMS > 1
@@ -55,18 +53,12 @@
 #endif
 	};
 
-	#include <stddef.h> // ptrdiff_t
-	int dwt_util_global_active_workers = BCE_DMA_CFGTABLE_NUM_ITEMS; ///< how many workers use for computation (can be less than total number of workers)
-	int dwt_util_global_temp_step; ///< in elements; offset in temp[] is gigen by worker_id * dwt_util_global_temp_step
-	ptrdiff_t dwt_util_global_data_step; ///< in bytes; offset in src[] and dst[] is given by worker_id * dwt_util_global_data_step
-
 	#include "firmware/fw_fp01_lift4sa.h"
 	#include "firmware/fw_fp01_lift4sb.h"
 
 	#define BANK_SIZE 1024
 
-	// FIXME: is this macro still correct?
-	#define WAL_BANK_POS(bank, off) ( (bank)*BANK_SIZE + (off) )
+	#define WAL_BANK_POS(off) ( off )
 
 	#define WAL_DMA_MASK(ch) ( 1<<(ch) )
 
@@ -75,13 +67,84 @@
 		#define WAL_CHECK(expr) (expr)
 	#else
 		/* Debug build */
-		#ifdef DEBUG_VERBOSE
-			#define WAL_CHECK(expr) ( printf("DEBUG: %s = ", STRING(expr)), wal_abort(expr) )
-		#else
-			#define WAL_CHECK(expr) ( wal_abort(expr) )
-		#endif
+		#define WAL_CHECK(expr) ( wal_abort(STRING(expr), expr) )
 	#endif
 #endif
+
+#ifdef microblaze
+/** total number of workers available */
+const int dwt_util_global_total_workers = BCE_DMA_CFGTABLE_NUM_ITEMS;
+
+static int get_total_workers()
+{
+	return dwt_util_global_total_workers;
+}
+
+/** how many workers use for computation (can be less than total number of workers) */
+int dwt_util_global_active_workers = BCE_DMA_CFGTABLE_NUM_ITEMS;
+
+static
+int get_active_workers()
+{
+	return dwt_util_global_active_workers;
+}
+static
+void set_active_workers(int active_workers)
+{
+	dwt_util_global_active_workers = active_workers;
+}
+
+#include <stddef.h> // ptrdiff_t
+
+/** in bytes; offset in src[] and dst[] is given by worker_id * dwt_util_global_data_step */
+ptrdiff_t dwt_util_global_data_step = 0;
+
+// FIXME: float *, _s
+static
+ptrdiff_t get_data_step()
+{
+	return dwt_util_global_data_step;
+}
+
+static void set_data_step(ptrdiff_t data_step)
+{
+	dwt_util_global_data_step = data_step;
+}
+
+/** in elements; offset in temp[] is gigen by worker_id * dwt_util_global_temp_step */
+int dwt_util_global_temp_step = 0;
+
+static
+int get_temp_step()
+{
+	return dwt_util_global_temp_step;
+}
+
+static
+void set_temp_step(int temp_step)
+{
+	dwt_util_global_temp_step = temp_step;
+}
+
+/** memory limit due to last worker when using more workers in parallel */
+intptr_t dwt_util_global_data_limit = 0;
+
+static
+void set_data_limit_s(const float *data_limit)
+{
+	dwt_util_global_data_limit = (intptr_t)data_limit;
+}
+#endif
+
+static
+int is_valid_data_step_s(const float *data_step)
+{
+#ifdef microblaze
+	return (intptr_t)data_step < dwt_util_global_data_limit;
+#else
+	return 1;
+#endif
+}
 
 #ifndef BANK_SIZE
 	#define BANK_SIZE 4096
@@ -103,15 +166,6 @@
 	#define USE_TIME_GETRUSAGE_SELF
 	#define USE_TIME_GETRUSAGE_CHILDREN
 	#define USE_TIME_GETRUSAGE_THREAD
-#endif
-
-#ifdef DEBUG
-	// BUG: workaround due to gcc?
-	#warning Usign ugly GCC workaround!
-	#undef USE_TIME_CLOCK
-	#undef USE_TIME_TIMES
-	// FIXME: is this now needed?
-	//#define UGLY_GCC_WORKAROUND
 #endif
 
 /** include LINUX_VERSION_CODE and KERNEL_VERSION macros */
@@ -294,6 +348,7 @@
 #include <stdio.h> // FILE, fopen, fprintf, fclose
 #include <string.h> // memcpy
 #include <stdarg.h> // va_start, va_end
+#include <malloc.h> // memalign
 
 /** OpenMP header when used */
 #ifdef _OPENMP
@@ -311,49 +366,30 @@
 /** quoting macros */
 #define QUOTE(x) STRING(x)
 
-// FIXME: here, take into account padding at borders when data are not aligned at 64-bits
-// FIXME: s/$/_s$/, s/step/offset/
-/** Calc offset in temp[] array for current worker. */
-static
-float *calc_temp_step(
-	float *addr,	///< pointer to array assigned to worker 0
-	int worker_id	///< identifier of current worker
-	)
-{
-#ifdef microblaze
-	return addr + (dwt_util_global_temp_step * worker_id);
-#else
-	UNUSED(worker_id);
-	return addr;
-#endif
-}
-
-// FIXME: s/$/_s$/, s/step/offset/
 /** Calc offset in src[] or dst[] array for current worker. */
 static
-float *calc_data_step(
+float *calc_data_offset_s(
 	float *addr,	///< pointer to array assigned to worker 0
 	int worker_id	///< identifier of current worker
        )
 {
 #ifdef microblaze
-	return (float *)( (intptr_t)addr + (dwt_util_global_data_step * worker_id) );
+	return (float *)( (intptr_t)addr + (get_data_step() * worker_id) );
 #else
 	UNUSED(worker_id);
 	return addr;
 #endif
 }
 
-// FIXME: suffix _s, s/step/offset/
 /** Calc offset in src[] or dst[] array for current worker. */
 static
-const float *calc_data_step_const(
+const float *calc_data_offset_const_s(
 	const float *addr,	///< pointer to array assigned to worker 0
-	int worker_id	///< identifier of current worker
+	int worker_id		///< identifier of current worker
        )
 {
 #ifdef microblaze
-	return (const float *)( (intptr_t)addr + (dwt_util_global_data_step * worker_id) );
+	return (const float *)( (intptr_t)addr + (get_data_step() * worker_id) );
 #else
 	UNUSED(worker_id);
 	return addr;
@@ -363,33 +399,45 @@ const float *calc_data_step_const(
 #ifdef microblaze
 static inline
 void flush_cache(
-	intptr_t addr,
-	size_t size)
+	intptr_t addr,	///< base address
+	size_t size	///< length of memory in bytes
+	)
 {
+	// FIXME: 4 or 8, should be detected
 	const size_t dcache_line_len = 4;
 
-	// FIXME: should this function before and after "wct" disable and enable dcache like in kernel here -- http://lxr.linux.no/linux+v3.6.6/arch/microblaze/kernel/cpu/cache.c
-	// FIXME: this code is weird, either addition of 1 in for-loop or multiplication by dcache_line_len should be removed
-	// FIXME: <= would make more sense
-	for(size_t i = 0; i < size; i += dcache_line_len)
-	{
-#ifdef UGLY_GCC_WORKAROUND
-		;
-#else /* UGLY_GCC_WORKAROUND */
+	intptr_t tmp = size + (dcache_line_len * 4);
+	do {
 		__asm volatile (
-			"wdc %0, r0;"
+			"wdc %0, %1;"
 			:
-			: "r" (addr + i * dcache_line_len)
+			: "r" (addr+tmp), "r" (0)
 			: "memory"
 		);
-#endif /* UGLY_GCC_WORKAROUND */
-	}
+		tmp -= dcache_line_len * 4;
+	} while( tmp >= 0 );
 }
 #endif
 
 #ifdef microblaze
-void wal_abort(int res)
+static inline
+void flush_cache_s(
+	float *addr,
+	size_t size
+	)
 {
+	flush_cache( (intptr_t)addr, size * sizeof(float) );
+}
+#endif
+
+#ifdef microblaze
+void wal_abort(const char *str, int res)
+{
+#ifdef DEBUG_VERBOSE
+	dwt_util_log(LOG_DBG, "%s = ", str);
+#else
+	UNUSED(str);
+#endif
 	switch(res)
 	{
 		case WAL_RES_OK:
@@ -430,12 +478,19 @@ const char *dwt_util_version()
 	return QUOTE(PACKAGE_STRING);
 }
 
-/**
- * @brief Global variable indicating used acceleration type.
- * @note Array of size of 2 is workaround due to GCC 3.4.1 bug.
- */
-// FIXME: is this workaround still needed?
-int dwt_util_global_accel_type[2] = {0};
+int dwt_util_global_accel_type = 0;
+
+static
+void set_accel_type(int accel_type)
+{
+	dwt_util_global_accel_type = accel_type;
+}
+
+static
+int get_accel_type()
+{
+	return dwt_util_global_accel_type;
+}
 
 /**
  * @{
@@ -635,6 +690,48 @@ int to_odd(
 	int x)
 {
 	return x - (1&~x);
+}
+
+static
+int is_aligned_8(
+	const void *ptr)
+{
+	return ( (intptr_t)ptr&(intptr_t)(8-1) ) ? 0 : 1;
+}
+
+static
+intptr_t align8(
+	intptr_t p)
+{
+	return (p+(8-1))&(~(8-1));
+}
+
+/** Calc offset in temp[] array for current worker. Preserves alignment on 8 bytes. */
+static
+float *calc_temp_offset_s(
+	float *addr,	///< pointer to array assigned to worker 0
+	int worker_id	///< identifier of current worker
+	)
+{
+#ifdef microblaze
+	return addr + to_even( 2 + (get_temp_step()+2) * worker_id );
+#else
+	UNUSED(worker_id);
+	return addr;
+#endif
+}
+
+static
+int calc_and_set_temp_size(
+	int temp_step)
+{
+#ifdef microblaze
+	set_temp_step(temp_step);
+
+	return 2 + to_even( 2 + (temp_step+2) * get_active_workers() );
+#else
+	return temp_step;
+#endif
 }
 
 /**
@@ -1281,8 +1378,7 @@ void accel_lift_op4s_main_s(
 
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		// TODO: fix bordering element due to non-64-bits alignment hack
-		float *arr_local = calc_temp_step(arr, w);
+		float *arr_local = calc_temp_offset_s(arr, w);
 
 		if( scaling < 0 )
 		{
@@ -1326,13 +1422,6 @@ void accel_lift_op4s_main_s(
 			}
 		}
 	}
-}
-
-static
-int is_aligned_8(
-	const void *ptr)
-{
-	return ( (intptr_t)ptr&(intptr_t)(8-1) ) ? 0 : 1;
 }
 
 /**
@@ -1383,33 +1472,30 @@ void accel_lift_op4s_main_pb_s(
 	assert( is_aligned_8(addr) );
 	assert( is_even(size) );
 
-#ifndef USE_DMA
-	// FIXME: remove
-	WAL_CHECK( wal_mb2dmem(worker[0], 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), addr, size) );
-#else /* USE_DMA */
-	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	for(int w = 0; w < get_active_workers(); w++)
 	{
 		// channel w according to worker ID; but each worker has independent DMA channels, thus this is not necessary
 		const uint8_t ch = w;
-		float *addr_local = addr + (dwt_util_global_temp_step * w); // FIXME: use function from top
+		float *addr_local = calc_temp_offset_s(addr, w);
+		
+		assert( is_aligned_8(addr_local) );
 
-		WAL_CHECK( wal_dma_configure(worker[w], ch, addr_local, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
+		WAL_CHECK( wal_dma_configure(worker[w], ch, addr_local, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0), size) );
 		WAL_CHECK( wal_dma_start(worker[w], ch, WAL_DMA_REQ_RD) );
 	}
 
-	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	for(int w = 0; w < get_active_workers(); w++)
 	{
 		// HACK: wait for completing memory transfers on all 8 channels; but each worker has independent DMA channels
 		while( wal_dma_isbusy(worker[w], /*WAL_DMA_MASK(ch)*/ 0x0f) )
 			;
 	}
-#endif /* USE_DMA */
 
 	const uint32_t steps_32 = (uint32_t)steps;
 	const uint32_t pb_offset_32 = (uint32_t)pb_offset;
 
 	// start BCE computations
-	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	for(int w = 0; w < get_active_workers(); w++)
 	{
 		WAL_CHECK( wal_mb2cmem(worker[w], WAL_CMEM_MB2PB, 0x01, &steps_32, 1) );
 		WAL_CHECK( wal_mb2cmem(worker[w], WAL_CMEM_MB2PB, 0x02, &pb_offset_32, 1) );
@@ -1418,7 +1504,7 @@ void accel_lift_op4s_main_pb_s(
 	}
 
 	// wait for finishing every BCE computation
-	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	for(int w = 0; w < get_active_workers(); w++)
 	{
 		WAL_CHECK( wal_pb2mb(worker[w], NULL) );
 	}
@@ -1426,33 +1512,27 @@ void accel_lift_op4s_main_pb_s(
 	assert( is_aligned_8(addr) );
 	assert( is_even(size) );
 
-#ifndef USE_DMA
-	// FIXME: remove
-	WAL_CHECK( wal_dmem2mb(worker[0], 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), addr, size) );
-#else /* USE_DMA */
-	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	for(int w = 0; w < get_active_workers(); w++)
 	{
 		const uint8_t ch = w;
-		float *addr_local = addr + (dwt_util_global_temp_step * w); // FIXME: use function from top
+		float *addr_local = calc_temp_offset_s(addr, w);
+		
+		assert( is_aligned_8(addr_local) );
 
-		// FIXME: this would suffice configure once!
-		WAL_CHECK( wal_dma_configure(worker[w], ch, addr_local, 0, WAL_BCE_JSY_DMEM_A, WAL_BANK_POS(0,0), size) );
 		WAL_CHECK( wal_dma_start(worker[w], ch, WAL_DMA_REQ_WR) );
 	}
 
-	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	for(int w = 0; w < get_active_workers(); w++)
 	{
 		while( wal_dma_isbusy(worker[w], /*WAL_DMA_MASK(ch)*/ 0x0f) )
 			;
 	}
-#endif /* USE_DMA */
 
-	for(int w = 0; w < dwt_util_global_active_workers; w++)
+	for(int w = 0; w < get_active_workers(); w++)
 	{
-		float *addr_local = addr + (dwt_util_global_temp_step * w); // FIXME: use function from top
+		float *addr_local = calc_temp_offset_s(addr, w);
 
-		// HACK: why +1? should be "size" only
-		flush_cache(addr_local, size+1);
+		flush_cache_s(addr_local-1, size); // HACK: why -1?
 	}
 #else /* microblaze */
 	// fallback
@@ -1482,8 +1562,7 @@ void accel_lift_op4s_prolog_s(
 
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		// TODO: fix bordering element due to non-64-bits alignment hack
-		float *arr_local = calc_temp_step(arr, w);
+		float *arr_local = calc_temp_offset_s(arr, w);
 		
 		if(off)
 		{
@@ -1559,8 +1638,7 @@ void accel_lift_op4s_epilog_s(
 
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		// TODO: fix bordering element due to non-64-bits alignment hack
-		float *arr_local = calc_temp_step(arr, w);
+		float *arr_local = calc_temp_offset_s(arr, w);
 
 		if( is_even(N-off) )
 		{
@@ -1649,7 +1727,7 @@ void accel_lift_op4s_short_s(
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
 		// TODO: fix bordering element due to non-64-bits alignment hack
-		float *arr_local = calc_temp_step(arr, w);
+		float *arr_local = calc_temp_offset_s(arr, w);
 
 		if(off)
 		{
@@ -1831,7 +1909,7 @@ void accel_lift_op4s_s(
 	{
 		accel_lift_op4s_prolog_s(arr, off, len, alpha, beta, gamma, delta, zeta, scaling);
 
-		if(1 == dwt_util_global_accel_type[0])
+		if(1 == get_accel_type())
 		{
 			const int max_inner_len = to_even(BANK_SIZE) - 4 + ( is_aligned_8(arr+off) ? 0 : -2);
 			const int inner_len = to_even(len-off) - 4; // FIXME: maybe -2? try on odd lengths and another decompositions like small image in big one... opencv example should test it
@@ -1851,21 +1929,21 @@ void accel_lift_op4s_s(
 				const int steps = (off + inner_len - left)/2;
 
 				// TODO: here should be a test if last block should be accelerated on PicoBlaze or rather computed on MicroBlaze
-				if( steps > /* FIXME: 96 */ 10 )
+				if( steps > 8 )
 					accel_lift_op4s_main_pb_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
 				else
 					accel_lift_op4s_main_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
 			}
 		}
-		else if(0 == dwt_util_global_accel_type[0])
+		else if(0 == get_accel_type())
 		{
 			accel_lift_op4s_main_s(arr+off, (to_even(len-off)-4)/2, alpha, beta, gamma, delta, zeta, scaling);
 		}
-		else if(2 == dwt_util_global_accel_type[0])
+		else if(2 == get_accel_type())
 		{
 			// empty
 		}
-		else if(3 == dwt_util_global_accel_type[0])
+		else if(3 == get_accel_type())
 		{
 			off = 0;
 			accel_lift_op4s_main_pb_s(arr+off, (to_even(len-off)-4)/2, alpha, beta, gamma, delta, zeta, scaling);
@@ -1888,7 +1966,6 @@ void dwt_cdf97_f_ex_stride_s(
 	assert( N >= 0 && NULL != src && NULL != dst_l && NULL != dst_h && NULL != tmp && 0 != stride );
 
 	// fix for small N
-	// FIXME: this should be parallel too!
 	if(N < 2)
 	{
 		if(1 == N)
@@ -1899,24 +1976,29 @@ void dwt_cdf97_f_ex_stride_s(
 	// copy src into tmp
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		float *tmp_local = calc_temp_step(tmp, w);
-		const float *src_local = calc_data_step_const(src, w);
+		float *tmp_local = calc_temp_offset_s(tmp, w);
+		const float *src_local = calc_data_offset_const_s(src, w);
 
-		dwt_util_memcpy_stride_s(tmp_local, sizeof(float), src_local, stride, N);
+		if( is_valid_data_step_s( src_local ) )
+		{
+			dwt_util_memcpy_stride_s(tmp_local, sizeof(float), src_local, stride, N);
+		}
 	}
 
-	// TODO: fix bordering element due to non-64-bits alignment hack in tmp[]
 	accel_lift_op4s_s(tmp, 1, N, -dwt_cdf97_p1_s, dwt_cdf97_u1_s, -dwt_cdf97_p2_s, dwt_cdf97_u2_s, dwt_cdf97_s1_s, +1);
 
 	// copy tmp into dst
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		float *tmp_local = calc_temp_step(tmp, w);
-		float *dst_l_local = calc_data_step(dst_l, w);
-		float *dst_h_local = calc_data_step(dst_h, w);
+		float *tmp_local = calc_temp_offset_s(tmp, w);
+		float *dst_l_local = calc_data_offset_s(dst_l, w);
+		float *dst_h_local = calc_data_offset_s(dst_h, w);
 
-		dwt_util_memcpy_stride_s(dst_l_local, stride, tmp_local+0, 2*sizeof(float),  ceil_div2(N));
-		dwt_util_memcpy_stride_s(dst_h_local, stride, tmp_local+1, 2*sizeof(float), floor_div2(N));
+		if( is_valid_data_step_s( dst_l_local ) )
+		{
+			dwt_util_memcpy_stride_s(dst_l_local, stride, tmp_local+0, 2*sizeof(float),  ceil_div2(N));
+			dwt_util_memcpy_stride_s(dst_h_local, stride, tmp_local+1, 2*sizeof(float), floor_div2(N));
+		}
 	}
 }
 
@@ -2151,7 +2233,6 @@ void dwt_cdf97_i_ex_stride_s(
 	assert( N >= 0 && NULL != src_l && NULL != src_h && NULL != dst && NULL != tmp && 0 != stride );
 
 	// fix for small N
-	// FIXME: this should be parallel too!
 	if(N < 2)
 	{
 		if(1 == N)
@@ -2162,25 +2243,29 @@ void dwt_cdf97_i_ex_stride_s(
 	// copy src into tmp
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		float *tmp_local = calc_temp_step(tmp, w);
-		const float *src_l_local = calc_data_step_const(src_l, w);
-		const float *src_h_local = calc_data_step_const(src_h, w);
+		float *tmp_local = calc_temp_offset_s(tmp, w);
+		const float *src_l_local = calc_data_offset_const_s(src_l, w);
+		const float *src_h_local = calc_data_offset_const_s(src_h, w);
 
-		dwt_util_memcpy_stride_s(tmp_local+0, 2*sizeof(float), src_l_local, stride,  ceil_div2(N));
-		dwt_util_memcpy_stride_s(tmp_local+1, 2*sizeof(float), src_h_local, stride, floor_div2(N));
+		if( is_valid_data_step_s(src_l_local) )
+		{
+			dwt_util_memcpy_stride_s(tmp_local+0, 2*sizeof(float), src_l_local, stride,  ceil_div2(N));
+			dwt_util_memcpy_stride_s(tmp_local+1, 2*sizeof(float), src_h_local, stride, floor_div2(N));
+		}
 	}
 
-
-	// TODO: fix bordering element due to non-64-bits alignment hack in tmp[]
 	accel_lift_op4s_s(tmp, 0, N, -dwt_cdf97_u2_s, dwt_cdf97_p2_s, -dwt_cdf97_u1_s, dwt_cdf97_p1_s, dwt_cdf97_s1_s, -1);
 
 	// copy tmp into dst
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		float *tmp_local = calc_temp_step(tmp, w);
-		float *dst_local = calc_data_step(dst, w);
+		float *tmp_local = calc_temp_offset_s(tmp, w);
+		float *dst_local = calc_data_offset_s(dst, w);
 
-		dwt_util_memcpy_stride_s(dst_local, stride, tmp_local, sizeof(float), N);
+		if( is_valid_data_step_s(dst_local) )
+		{
+			dwt_util_memcpy_stride_s(dst_local, stride, tmp_local, sizeof(float), N);
+		}
 	}
 }
 
@@ -2374,7 +2459,7 @@ void dwt_util_switch_op(
 
 	//WAL_CHECK( wal_bce_jk_sync_operation(worker) );
 
-	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	for(int w = 0; w < get_total_workers(); w++)
 	{
 		WAL_CHECK( wal_reset_worker(worker[w]) );
 	}
@@ -2383,7 +2468,7 @@ void dwt_util_switch_op(
 	{
 		case DWT_OP_LIFT4SA:
 		{
-			for(int w = 0; w < dwt_util_global_total_workers; w++)
+			for(int w = 0; w < get_total_workers(); w++)
 			{
 				WAL_CHECK( wal_start_operation(worker[w], WAL_PBID_P0) );
 			}
@@ -2408,24 +2493,20 @@ void dwt_util_switch_op(
 			assert( is_even(size) );
 			assert( is_aligned_8(addr) );
 
-#ifndef USE_DMA
-			// FIXME: remove
-			WAL_CHECK( wal_mb2dmem(worker[0], 0, WAL_BCE_JSY_DMEM_B, WAL_BANK_POS(0,0), addr, size) );
-#else
-			for(int w = 0; w < dwt_util_global_total_workers; w++)
+			for(int w = 0; w < get_total_workers(); w++)
 			{
 				WAL_CHECK( wal_dma_configure(worker[w], 0, addr, 0, WAL_BCE_JSY_DMEM_B, 0, size) );
 				WAL_CHECK( wal_dma_start(worker[w], 0, WAL_DMA_REQ_RD) );
 				while( wal_dma_isbusy(worker[w], 0x01) )
 					;
 			}
-#endif
+
 			free(addr);
 		}
 		break;
 		case DWT_OP_LIFT4SB:
 		{
-			for(int w = 0; w < dwt_util_global_total_workers; w++)
+			for(int w = 0; w < get_total_workers(); w++)
 			{
 				WAL_CHECK( wal_start_operation(worker[w], WAL_PBID_P1) );
 			}
@@ -2450,18 +2531,14 @@ void dwt_util_switch_op(
 			assert( is_even(size) );
 			assert( is_aligned_8(addr) );
 
-#ifndef USE_DMA
-			// FIXME: remove
-			WAL_CHECK( wal_mb2dmem(worker[0], 0, WAL_BCE_JSY_DMEM_B, WAL_BANK_POS(0,0), addr, size) );
-#else
-			for(int w = 0; w < dwt_util_global_total_workers; w++)
+			for(int w = 0; w < get_total_workers(); w++)
 			{
 				WAL_CHECK( wal_dma_configure(worker[w], 0, addr, 0, WAL_BCE_JSY_DMEM_B, 0, size) );
 				WAL_CHECK( wal_dma_start(worker[w], 0, WAL_DMA_REQ_RD) );
 				while( wal_dma_isbusy(worker[w], 0x01) )
 					;
 			}
-#endif
+
 			free(addr);
 		}
 		break;
@@ -2660,15 +2737,11 @@ void dwt_cdf97_2f_s(
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
 
-	// FIXME: elliminate
-	const int active_workers = dwt_util_get_num_workers();
+// #ifdef microblaze
+// 	set_temp_step(size_o_big_max);
+// #endif
 
-#ifdef microblaze
-	// FIXME: wrap this assignment
-	dwt_util_global_temp_step = size_o_big_max;
-#endif
-
-	float temp[size_o_big_max*active_workers];
+	float temp[calc_and_set_temp_size(size_o_big_max)];
 	if(NULL == temp)
 		abort();
 
@@ -2691,22 +2764,17 @@ void dwt_cdf97_2f_s(
 		const int size_i_src_x = ceil_div_pow2(size_i_big_x, j  );
 		const int size_i_src_y = ceil_div_pow2(size_i_big_y, j  );
 
-#ifdef microblaze
-		// FIXME: temporarily, only power of two sizes
-		assert( size_o_src_y == pow2_ceil_log2(size_o_src_y) );
-		assert( size_o_src_x == pow2_ceil_log2(size_o_src_x) );
-#endif
-
+#ifdef _OPENMP
 		const int threads_segment_y = ceil_div(size_o_src_y, dwt_util_get_num_threads());
 		const int threads_segment_x = ceil_div(size_o_src_x, dwt_util_get_num_threads());
+#endif
 		const int workers_segment_y = ceil_div(size_o_src_y, dwt_util_get_num_workers());
 		const int workers_segment_x = ceil_div(size_o_src_x, dwt_util_get_num_workers());
 
 #ifdef microblaze
-		// FIXME: wrap this by function
-		dwt_util_global_data_step = (intptr_t)addr2_s(ptr,workers_segment_y,0,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y);
+		set_data_step( (intptr_t)addr2_s(ptr,workers_segment_y,0,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y) );
+		set_data_limit_s( addr2_s(ptr,size_o_src_y,0,stride_x,stride_y) );
 #endif
-		//#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
 		#pragma omp parallel for private(temp) schedule(static, threads_segment_y)
 		for(int y = 0; y < workers_segment_y; y++)
 			dwt_cdf97_f_ex_stride_s(
@@ -2717,11 +2785,11 @@ void dwt_cdf97_2f_s(
 				size_i_src_x,
 				stride_y);
 #ifdef microblaze
-		dwt_util_global_data_step = (intptr_t)addr2_s(ptr,0,workers_segment_x,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y);
+		set_data_step( (intptr_t)addr2_s(ptr,0,workers_segment_x,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y) );
+		set_data_limit_s( addr2_s(ptr,0,size_o_src_x,stride_x,stride_y) );
 #endif
-		//#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
 		#pragma omp parallel for private(temp) schedule(static, threads_segment_x)
-		for(int x = 0; x < /*size_o_src_x/active_workers*/workers_segment_x; x++)
+		for(int x = 0; x < workers_segment_x; x++)
 			dwt_cdf97_f_ex_stride_s(
 				addr2_s(ptr,0,x,stride_x,stride_y),
 				addr2_s(ptr,0,x,stride_x,stride_y),
@@ -2732,7 +2800,6 @@ void dwt_cdf97_2f_s(
 
 		if(zero_padding)
 		{
-			//#pragma omp parallel for schedule(static, ceil_div(size_o_src_y, omp_get_num_threads()))
 			#pragma omp parallel for schedule(static, threads_segment_y)
 			for(int y = 0; y < size_o_src_y; y++)
 				dwt_zero_padding_f_stride_s(
@@ -2742,7 +2809,6 @@ void dwt_cdf97_2f_s(
 					size_o_dst_x,
 					size_o_src_x-size_o_dst_x,
 					stride_y);
-			//#pragma omp parallel for schedule(static, ceil_div(size_o_src_x, omp_get_num_threads()))
 			#pragma omp parallel for schedule(static, threads_segment_x)
 			for(int x = 0; x < size_o_src_x; x++)
 				dwt_zero_padding_f_stride_s(
@@ -3016,13 +3082,11 @@ void dwt_cdf97_2i_s(
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
 
-	const int active_workers = dwt_util_get_num_workers();
+// #ifdef microblaze
+// 	set_temp_step(size_o_big_max);
+// #endif
 
-#ifdef microblaze
-	dwt_util_global_temp_step = size_o_big_max;
-#endif
-
-	float temp[size_o_big_max*active_workers];
+	float temp[calc_and_set_temp_size(size_o_big_max)];
 	if(NULL == temp)
 		abort();
 
@@ -3043,22 +3107,17 @@ void dwt_cdf97_2i_s(
 		const int size_i_dst_x = ceil_div_pow2(size_i_big_x, j-1);
 		const int size_i_dst_y = ceil_div_pow2(size_i_big_y, j-1);
 
-#ifdef microblaze
-		// FIXME
-		assert( size_o_dst_y == pow2_ceil_log2(size_o_dst_y) );
-		assert( size_o_dst_x == pow2_ceil_log2(size_o_dst_x) );
-#endif
-
+#ifdef _OPENMP
 		const int threads_segment_y = ceil_div(size_o_dst_y, dwt_util_get_num_threads());
 		const int threads_segment_x = ceil_div(size_o_dst_x, dwt_util_get_num_threads());
+#endif
 		const int workers_segment_y = ceil_div(size_o_dst_y, dwt_util_get_num_workers());
 		const int workers_segment_x = ceil_div(size_o_dst_x, dwt_util_get_num_workers());
 
 #ifdef microblaze
-		dwt_util_global_data_step = (intptr_t)addr2_s(ptr,workers_segment_y,0,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y);
+		set_data_step( (intptr_t)addr2_s(ptr,workers_segment_y,0,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y) );
+		set_data_limit_s( addr2_s(ptr,size_o_dst_y,0,stride_x,stride_y) );
 #endif
-
-		//#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
 		#pragma omp parallel for private(temp) schedule(static, threads_segment_y)
 		for(int y = 0; y < workers_segment_y; y++)
 			dwt_cdf97_i_ex_stride_s(
@@ -3069,9 +3128,9 @@ void dwt_cdf97_2i_s(
 				size_i_dst_x,
 				stride_y);
 #ifdef microblaze
-		dwt_util_global_data_step = (intptr_t)addr2_s(ptr,0,workers_segment_x,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y);
+		set_data_step( (intptr_t)addr2_s(ptr,0,workers_segment_x,stride_x,stride_y) - (intptr_t)addr2_s(ptr,0,0,stride_x,stride_y) );
+		set_data_limit_s( addr2_s(ptr,0,size_o_dst_x,stride_x,stride_y) );
 #endif
-		//#pragma omp parallel for private(temp) schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
 		#pragma omp parallel for private(temp) schedule(static, threads_segment_x)
 		for(int x = 0; x < workers_segment_x; x++)
 			dwt_cdf97_i_ex_stride_s(
@@ -3084,7 +3143,6 @@ void dwt_cdf97_2i_s(
 
 		if(zero_padding)
 		{
-			//#pragma omp parallel for schedule(static, ceil_div(size_o_dst_y, omp_get_num_threads()))
 			#pragma omp parallel for schedule(static, threads_segment_y)
 			for(int y = 0; y < size_o_dst_y; y++)
 				dwt_zero_padding_i_stride_s(
@@ -3092,7 +3150,6 @@ void dwt_cdf97_2i_s(
 					size_i_dst_x,
 					size_o_dst_x,
 					stride_y);
-			//#pragma omp parallel for schedule(static, ceil_div(size_o_dst_x, omp_get_num_threads()))
 			#pragma omp parallel for schedule(static, threads_segment_x)
 			for(int x = 0; x < size_o_dst_x; x++)
 				dwt_zero_padding_i_stride_s(
@@ -3761,7 +3818,7 @@ int dwt_util_get_max_threads()
 int dwt_util_get_max_workers()
 {
 #ifdef microblaze
-	return dwt_util_global_total_workers;
+	return get_total_workers();
 #else /* microblaze */
 	return 1;
 #endif /* microblaze */
@@ -3785,7 +3842,7 @@ void dwt_util_set_num_workers(
 	assert( num_workers > 0 );
 
 #ifdef microblaze
-	dwt_util_global_active_workers = num_workers;
+	set_active_workers(num_workers);
 #else
 	UNUSED(num_workers);
 #endif
@@ -3811,7 +3868,7 @@ int dwt_util_get_num_threads()
 int dwt_util_get_num_workers()
 {
 #ifdef microblaze
-	return dwt_util_global_active_workers;
+	return get_active_workers();
 #else
 	return 1;
 #endif
@@ -3822,10 +3879,12 @@ void dwt_util_init()
 	FUNC_BEGIN;
 
 #ifdef microblaze
-	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	for(int w = 0; w < get_total_workers(); w++)
 	{
 		WAL_CHECK( wal_init_worker(worker[w]) );
 
+		// FIXME: translate DWT_OP_LIFT4SA into WAL_PBID_P0 by function
+	
 		WAL_CHECK( wal_set_firmware(worker[w], /*WAL_PBID_P0*/DWT_OP_LIFT4SA, fw_fp01_lift4sa, -1) );
 
 		WAL_CHECK( wal_set_firmware(worker[w], /*WAL_PBID_P1*/DWT_OP_LIFT4SB, fw_fp01_lift4sb, -1) );
@@ -3848,7 +3907,7 @@ void dwt_util_finish()
 	FUNC_BEGIN;
 
 #ifdef microblaze
-	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	for(int w = 0; w < get_total_workers(); w++)
 	{
 		//WAL_CHECK( wal_mb2pb(worker, 0) );
 
@@ -3866,7 +3925,7 @@ void dwt_util_abort()
 	FUNC_BEGIN;
 
 #ifdef microblaze
-	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	for(int w = 0; w < get_total_workers(); w++)
 	{
 		// FIXME: is this legal? although the operation was not running?
 		wal_end_operation(worker[w]);
@@ -3875,7 +3934,6 @@ void dwt_util_abort()
 		wal_done_worker(worker[w]);
 	}
 
-	// abort program
 	abort();
 #endif /* microblaze */
 
@@ -3920,7 +3978,7 @@ int dwt_util_save_to_pgm_s(
 void dwt_util_set_accel(
 	int accel_type)
 {
-	dwt_util_global_accel_type[0] = accel_type;
+	set_accel_type(accel_type);
 }
 
 #define iszero(x) (fpclassify(x) == FP_ZERO)
@@ -3982,13 +4040,10 @@ float *dwt_util_allocate_vec_s(int size)
 
 	float *addr = (float *)0;
 
-	// FIXME: possibly infinite loop!
-	do
-	{
-		// free(addr); // FIXME: freezes in an infinite loop
-		addr = (float *)malloc( sizeof(float) * size );
-	}
-	while( !is_aligned_8(addr) );
+	// http://git.uclibc.org/uClibc/tree/include - memalign i posix_memalign
+	addr = (float *)memalign(8, sizeof(float) * size);
+
+	assert( is_aligned_8(addr) );
 
 	return addr;
 }
@@ -4046,7 +4101,7 @@ void dwt_util_test()
 	}
 
 #ifdef microblaze
-	for(int w = 0; w < dwt_util_global_total_workers; w++)
+	for(int w = 0; w < get_total_workers(); w++)
 	{
 		dwt_util_log(LOG_TEST, "worker %i: init worker...\n", w);
 		if( wal_init_worker(worker[w]) )
@@ -4095,7 +4150,7 @@ void dwt_util_test()
 
 		dwt_util_log(LOG_TEST, "flushing cache...\n");
 
-		flush_cache(addr, size);
+		flush_cache_s(addr, size);
 
 		dwt_util_log(LOG_TEST, "comparing with original sequence...\n");
 

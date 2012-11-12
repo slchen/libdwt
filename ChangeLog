@@ -1,3 +1,7 @@
+2012-11-12 David Barina <ibarina@fit.vutbr.cz>
+* ASVP: Acceleration of non power of two image sizes.
+* ASVP: Fixed several bugs.
+
 2012-11-09 David Barina <ibarina@fit.vutbr.cz>
 * On ASVP platform, added initial support for parallel processing by several
 BCE workers.
