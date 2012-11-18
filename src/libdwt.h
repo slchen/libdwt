@@ -708,6 +708,11 @@ int dwt_util_compare_s(
 const char *dwt_util_version();
 
 /**
+ * @brief Architecture we are running on.
+ */
+const char *dwt_util_arch();
+
+/**
  * @brief Timer types.
  *
  * Timer sources used in @ref dwt_util_clock_available, @ref dwt_util_get_frequency and @ref dwt_util_get_clock functions.
@@ -830,7 +835,7 @@ void dwt_util_set_accel(
 	int accel_type);
 
 /**
- * @brief Initialize worker in UTIA EdkDSP platform.
+ * @brief Initialize worker in UTIA ASVP platform.
  *
  * @warning experimental
  */
@@ -1020,6 +1025,15 @@ int dwt_util_log(
 	enum dwt_util_loglevel level,	///< log level
 	const char *format,		///< format string that specifies how subsequent arguments re converted for output
 	...				///< the subsequent arguments
+);
+
+/**
+ * @brief Check if memory is aligned to 64 bits.
+ * 
+ * @returns Returns 0 when not aligned or 1 when aligned.
+ */
+int dwt_util_is_aligned_8(
+	const void *ptr		///< pointer to the memory
 );
 
 /**

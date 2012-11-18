@@ -21,7 +21,7 @@
 * use size_t, ssize_t, etc. instead of unsigned int, int, ...
 * 3D data support
 * ARM support
-* ASVP: upload new data when waiting for preceding operation (use memory banks 0/1)
+* ASVP: upload new data when waiting for preceding operation (use another memory bank)
 * ASVP: number of workers should be adjustable by environment variable like number of threads in OpenMP
 * ASVP: compile never cross compiler (GCC for microblaze)
-* ASVP: optimize firmwares
+* MS Windows support

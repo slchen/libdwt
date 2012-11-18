@@ -1,3 +1,8 @@
+2012-11-18 David Barina <ibarina@fit.vutbr.cz>
+* ASVP: Fixed several bugs.
+* ASVP: Optimized firmwares.
+* Added dwt_util_arch function.
+
 2012-11-12 David Barina <ibarina@fit.vutbr.cz>
 * ASVP: Acceleration of non power of two image sizes.
 * ASVP: Fixed several bugs.

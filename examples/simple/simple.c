@@ -8,16 +8,18 @@
 
 int main()
 {
-	// dwt_util_test(); // FIXME
-
 	dwt_util_init();
 
 	dwt_util_log(LOG_INFO, "Library version is \"%s\".\n", dwt_util_version());
+	dwt_util_log(LOG_INFO, "We are running on \"%s\".\n", dwt_util_arch());
 	dwt_util_log(LOG_INFO, "Using %i threads.\n", dwt_util_get_num_threads());
 	dwt_util_log(LOG_INFO, "Using %i workers.\n", dwt_util_get_num_workers());
 
 	const int x = 512, y = 512;
-	const int stride_x = x*sizeof(float), stride_y = sizeof(float);
+
+	dwt_util_log(LOG_INFO, "size of %ix%i pixels\n", x, y);
+
+	const int stride_x = x * sizeof(float), stride_y = sizeof(float);
 	void *data1, *data2;
 	int j = -1;
 
@@ -40,9 +42,6 @@ int main()
 	time_start = dwt_util_get_clock(type);
 
 	// forward transform
-	// dwt_util_set_accel(1); // FIXME
-	// dwt_util_set_num_threads(2); // FIXME
-	// dwt_util_set_num_workers(2); // FIXME
 	dwt_cdf97_2f_s(data1, stride_x, stride_y, x, y, x, y, &j, 0, 0);
 
 	// stop timer
@@ -55,9 +54,6 @@ int main()
 	time_start = dwt_util_get_clock(type);
 
 	// inverse transform
-	// dwt_util_set_accel(1); // FIXME
-	// dwt_util_set_num_threads(2); // FIXME
-	// dwt_util_set_num_workers(2); // FIXME
 	dwt_cdf97_2i_s(data1, stride_x, stride_y, x, y, x, y, j, 0, 0);
 
 	// stop timer
@@ -75,6 +71,9 @@ int main()
 	dwt_util_log(LOG_INFO, "saving...\n");
 	dwt_util_save_to_pgm_s("data1.pgm", 1.0, data1, stride_x, stride_y, x, y);
 	dwt_util_save_to_pgm_s("data2.pgm", 1.0, data2, stride_x, stride_y, x, y);
+
+	dwt_util_free_image(&data1);
+	dwt_util_free_image(&data2);
 
 	return 0;
 }

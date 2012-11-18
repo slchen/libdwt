@@ -29,3 +29,7 @@ EDKDSP_CLIENT = 192.168.0.10
 .PHONY: upload
 upload: all
 	cat $(BIN) | ssh $(EDKDSP_SERVER) "curl -n -T - -Q \"-SITE CHMOD 777 /tmp/$(BIN)\" ftp://$(EDKDSP_CLIENT)/tmp/$(BIN)"
+
+.PHONY: run
+run: all
+	./$(BIN)
