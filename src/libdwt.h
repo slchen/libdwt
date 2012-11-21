@@ -892,6 +892,7 @@ int dwt_util_get_num_workers();
  */
 enum dwt_op
 {
+	DWT_OP_NONE,		///< undefined operation
 	DWT_OP_LIFT4SA,		///< CDF 9/7 wavelet, forward transform
 	DWT_OP_LIFT4SB		///< CDF 9/7 wavelet, inverse transform
 };
@@ -1035,6 +1036,20 @@ int dwt_util_log(
 int dwt_util_is_aligned_8(
 	const void *ptr		///< pointer to the memory
 );
+
+/**
+ * @brief Get node (machine) name which we are running on.
+ * 
+ * @returns Returns pointer to string. Do not pass this pointer to @p free. This string can be changed by next @ref dwt_util_node function call.
+ */
+const char *dwt_util_node();
+
+/**
+ * @brief Get program name.
+ * 
+ * @returns Returns pointer to null-terminated string. Do not pass this pointer to @p free. This string can be changed by next @ref dwt_util_appname function call.
+ */
+const char *dwt_util_appname();
 
 /**
  * @}

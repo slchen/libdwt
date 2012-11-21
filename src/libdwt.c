@@ -140,6 +140,9 @@ void set_data_limit_s(const float *data_limit)
 {
 	dwt_util_global_data_limit = (intptr_t)data_limit;
 }
+
+/** active firmware in all ASVP acceleration units */
+enum dwt_op dwt_util_global_active_op = DWT_OP_NONE;
 #endif
 
 static
@@ -1945,6 +1948,7 @@ void accel_lift_op4s_s(
 	{
 		accel_lift_op4s_prolog_s(arr, off, len, alpha, beta, gamma, delta, zeta, scaling);
 
+		// FIXME: with GCC use (un)likely, i.e. __builtin_expect
 		if(1 == get_accel_type())
 		{
 			const int max_inner_len = to_even(BANK_SIZE) - 4;
@@ -1967,7 +1971,7 @@ void accel_lift_op4s_s(
 				const int steps = (off + inner_len - left)/2;
 
 				// TODO: here should be a test if last block should be accelerated on PicoBlaze or rather computed on MicroBlaze
-				if( steps > 40 )
+				if( steps > 25 )
 					accel_lift_op4s_main_pb_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
 				else
 					accel_lift_op4s_main_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
@@ -2493,6 +2497,8 @@ void dwt_util_switch_op(
 	FUNC_BEGIN;
 
 #ifdef microblaze
+	if( op == dwt_util_global_active_op )
+		return;
 	//WAL_CHECK( wal_mb2pb(worker, 0) );
 
 	//WAL_CHECK( wal_bce_jk_sync_operation(worker) );
@@ -2583,6 +2589,8 @@ void dwt_util_switch_op(
 		default:
 			dwt_util_abort();
 	}
+
+	dwt_util_global_active_op = op;
 #else
 	UNUSED(op);
 #endif
@@ -2770,8 +2778,9 @@ void dwt_cdf97_2f_s(
 {
 	FUNC_BEGIN;
 
-	dwt_util_switch_op(DWT_OP_LIFT4SA); // FIXME
-
+#ifdef microblaze
+	dwt_util_switch_op(DWT_OP_LIFT4SA);
+#endif
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
 
@@ -3124,8 +3133,9 @@ void dwt_cdf97_2i_s(
 {
 	FUNC_BEGIN;
 
-	dwt_util_switch_op(DWT_OP_LIFT4SB); // FIXME
-
+#ifdef microblaze
+	dwt_util_switch_op(DWT_OP_LIFT4SB);
+#endif
 	const int size_o_big_min = min(size_o_big_x,size_o_big_y);
 	const int size_o_big_max = max(size_o_big_x,size_o_big_y);
 
@@ -3938,9 +3948,9 @@ void dwt_util_init()
 
 		// FIXME: translate DWT_OP_LIFT4SA into WAL_PBID_P0 by function
 	
-		WAL_CHECK( wal_set_firmware(worker[w], /*WAL_PBID_P0*/DWT_OP_LIFT4SA, fw_fp01_lift4sa, -1) );
+		WAL_CHECK( wal_set_firmware(worker[w], WAL_PBID_P0 /*DWT_OP_LIFT4SA*/, fw_fp01_lift4sa, -1) );
 
-		WAL_CHECK( wal_set_firmware(worker[w], /*WAL_PBID_P1*/DWT_OP_LIFT4SB, fw_fp01_lift4sb, -1) );
+		WAL_CHECK( wal_set_firmware(worker[w], WAL_PBID_P1 /*DWT_OP_LIFT4SB*/, fw_fp01_lift4sb, -1) );
 
 		// TODO: call switch_op()
 
@@ -4109,7 +4119,7 @@ float *dwt_util_allocate_8_vec_s(int size)
 
 	float *addr = (float *)0;
 
-	// http://git.uclibc.org/uClibc/tree/include - memalign i posix_memalign
+	// http://git.uclibc.org/uClibc/tree/include - memalign, posix_memalign
 	addr = (float *)memalign(8, sizeof(float) * size);
 
 	assert( is_aligned_8(addr) );
@@ -4123,7 +4133,7 @@ float *dwt_util_allocate_vec_s(int size)
 
 	float *addr = (float *)0;
 
-	// http://git.uclibc.org/uClibc/tree/include - memalign i posix_memalign
+	// http://git.uclibc.org/uClibc/tree/include - memalign, posix_memalign
 	addr = (float *)memalign(8, sizeof(float) * size);
 
 	assert( is_aligned_8(addr) );
@@ -4308,4 +4318,54 @@ int dwt_util_log(
 	fflush(stream);
 
 	return ret;
+}
+
+static
+const char *node()
+{
+	FILE *f = fopen("/proc/sys/kernel/hostname", "r");
+	if(f)
+	{
+		// FIXME: HOST_NAME_MAX, HOSTNAME_LENGTH, MAXHOSTNAMELEN
+#define MAX_NODE_LEN 256
+		static char buff[MAX_NODE_LEN]; // NOTE: global variable
+		fgets(buff, MAX_NODE_LEN, f);
+		fclose(f);
+
+		char *nl = strchr(buff, '\n');
+		if(nl)
+			*nl = 0;
+		
+		return buff;
+	}
+	else
+		return "unknown";
+}
+
+const char *dwt_util_node()
+{
+		return node();
+}
+
+static
+const char *appname()
+{
+	FILE *f = fopen("/proc/self/cmdline", "r");
+	if(f)
+	{
+		// FIXME: PAGE_SIZE
+#define MAX_CMDLINE_LEN 4096
+		static char buff[MAX_CMDLINE_LEN]; // NOTE: global variable
+		fgets(buff, MAX_CMDLINE_LEN, f);
+		fclose(f);
+		
+		return basename(buff);
+	}
+	else
+		return "unknown";
+}
+
+const char *dwt_util_appname()
+{
+	return appname();
 }
