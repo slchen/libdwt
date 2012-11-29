@@ -824,10 +824,11 @@ void dwt_util_set_num_workers(
  * @brief Enable block-acceleration using workers in UTIA ASVP platform.
  *
  * @param[in] accel_type Means
- *   @li 0 for C implementation,
+ *   @li 0 for CPU multi-loop implementation,
  *   @li 1 for BCE implementation if available (ASVP platform),
  *   @li 2 for empty implementation (for performance measurement),
- *   @li 3 for test BCE implementation on whole data vector (ASVP platform).
+ *   @li 3 for test BCE implementation on whole data vector (ASVP platform),
+ *   @li 4 for CPU double-loop algorithm.
  *
  * @warning highly experimental
  */
@@ -1050,6 +1051,17 @@ const char *dwt_util_node();
  * @returns Returns pointer to null-terminated string. Do not pass this pointer to @p free. This string can be changed by next @ref dwt_util_appname function call.
  */
 const char *dwt_util_appname();
+
+/**
+ * Gets optimal data stride according to cache usage.
+ * 
+ * @return Returns optimal stride in bytes.
+ * 
+ * @warning experimental
+ */
+int dwt_util_get_opt_stride(
+	int min_stride		///< minimum required stride (in bytes)
+);
 
 /**
  * @}

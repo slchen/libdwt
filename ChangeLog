@@ -1,3 +1,7 @@
+2012-11-29 David Barina <ibarina@fit.vutbr.cz>
+* Added support for double-loop lifting algorithm.
+* Added initial support for optimal stride selection.
+
 2012-11-21 David Barina <ibarina@fit.vutbr.cz>
 * ASVP: dwt_util_switch_op remember currently active firmware.
 * Added dwt_util_node and dwt_util_appname functions.

@@ -11,6 +11,12 @@ int main()
 	// init platform
 	dwt_util_init();
 
+	// image size
+	const int x = 512, y = 512;
+
+	// compute optimal stride
+	const int stride_x = dwt_util_get_opt_stride(x * sizeof(float)), stride_y = sizeof(float);
+
 	// some log messages
 	dwt_util_log(LOG_INFO, "Library version is \"%s\".\n", dwt_util_version());
 	dwt_util_log(LOG_INFO, "We are running on \"%s\" architecture.\n", dwt_util_arch());
@@ -18,12 +24,10 @@ int main()
 	dwt_util_log(LOG_INFO, "Application name is \"%s\".\n", dwt_util_appname());
 	dwt_util_log(LOG_INFO, "Using %i threads.\n", dwt_util_get_num_threads());
 	dwt_util_log(LOG_INFO, "Using %i workers.\n", dwt_util_get_num_workers());
-
-	const int x = 512, y = 512;
-
 	dwt_util_log(LOG_INFO, "Using image of size of %ix%i pixels.\n", x, y);
+	dwt_util_log(LOG_INFO, "Using stride of %i bytes.\n", stride_x);
 
-	const int stride_x = x * sizeof(float), stride_y = sizeof(float);
+	// image data
 	void *data1, *data2;
 
 	// full decomposition

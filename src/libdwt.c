@@ -76,6 +76,9 @@
 	#endif
 #endif
 
+/** UNUSED macro */
+#define UNUSED(expr) do { (void)(expr); } while (0)
+
 #ifdef microblaze
 /** total number of workers available */
 const int dwt_util_global_total_workers = BCE_DMA_CFGTABLE_NUM_ITEMS;
@@ -151,6 +154,7 @@ int is_valid_data_step_s(const float *data_step)
 #ifdef microblaze
 	return (intptr_t)data_step < dwt_util_global_data_limit;
 #else
+	UNUSED(data_step);
 	return 1;
 #endif
 }
@@ -363,9 +367,6 @@ int is_valid_data_step_s(const float *data_step)
 #ifdef _OPENMP
 	#include <omp.h>
 #endif
-
-/** UNUSED macro */
-#define UNUSED(expr) do { (void)(expr); } while (0)
 
 /** this PACKAGE_STRING macro must be defined via compiler's command line */
 #ifndef PACKAGE_STRING
@@ -1463,6 +1464,151 @@ void accel_lift_op4s_main_s(
 	}
 }
 
+/**
+ * "double-loop algorithm" from Rade Kutil: A Single-Loop Approach to SIMD Parallelization of 2-D Wavelet Lifting.
+ */
+static
+void accel_lift_op4s_main_dl_s(
+	float *arr,
+	int steps,
+	float alpha,
+	float beta,
+	float gamma,
+	float delta,
+	float zeta,
+	int scaling)
+{
+	assert( steps >= 0 );
+
+	if( scaling < 0 )
+	{
+		for(int w = 0; w < dwt_util_get_num_workers(); w++)
+		{
+			float *arr_local = calc_temp_offset_s(arr, w);
+
+			const float w[4] = { delta, gamma, beta, alpha };
+
+			// values that have to be passed from iteration to iteration
+			// slide in left border
+			float l[4] = { arr_local[0], arr_local[1], arr_local[2], arr_local[3] };
+
+			// loop by pairs from left to right
+			for(int s = 0; s < steps; s++)
+			{
+				// auxiliary variables
+				float in0;
+				float in1;
+				float out0;
+				float out1;
+
+				// inputs
+				in0 = arr_local[4+0+s*2];
+				in1 = arr_local[4+1+s*2];
+
+				// scales
+				in0 = in0 * 1/zeta;
+				in1 = in1 *   zeta;
+
+				// shuffles
+				float c[4] = { l[1], l[2], l[3], in0 };
+				out0 = l[0];
+
+				float r[4];
+
+				// operation z[] = c[] + { alpha, beta, gamma, delta } * ( l[] + r[] )
+				// by sequential computation from top/right to bottom/left
+				r[3] = in1;
+				r[2] = c[3]+w[3]*(l[3]+r[3]);
+				r[1] = c[2]+w[2]*(l[2]+r[2]);
+				r[0] = c[1]+w[1]*(l[1]+r[1]);
+				out1 = c[0]+w[0]*(l[0]+r[0]);
+
+				// outputs
+				arr_local[0+0+s*2] = out0;
+				arr_local[0+1+s*2] = out1;
+
+				// update l[]
+				l[0] = r[0];
+				l[1] = r[1];
+				l[2] = r[2];
+				l[3] = r[3];
+			}
+
+			// slide out right border
+			arr_local[steps*2+0] = l[0];
+			arr_local[steps*2+1] = l[1];
+			arr_local[steps*2+2] = l[2];
+			arr_local[steps*2+3] = l[3];
+		}
+	}
+	else if ( scaling > 0 )
+	{
+		for(int w = 0; w < dwt_util_get_num_workers(); w++)
+		{
+			float *arr_local = calc_temp_offset_s(arr, w);
+
+			const float w[4] = { delta, gamma, beta, alpha };
+
+			// values that have to be passed from iteration to iteration
+			// slide in left border
+			float l[4] = { arr_local[0], arr_local[1], arr_local[2], arr_local[3] };
+
+			// loop by pairs from left to right
+			for(int s = 0; s < steps; s++)
+			{
+				// auxiliary variables
+				float in0;
+				float in1;
+				float out0;
+				float out1;
+
+				// inputs
+				in0 = arr_local[4+0+s*2];
+				in1 = arr_local[4+1+s*2];
+
+				// shuffles
+				float c[4] = { l[1], l[2], l[3], in0 };
+				out0 = l[0];
+
+				float r[4];
+
+				// operation z[] = c[] + { alpha, beta, gamma, delta } * ( l[] + r[] )
+				// by sequential computation from top/right to bottom/left
+				r[3] = in1;
+				r[2] = c[3]+w[3]*(l[3]+r[3]);
+				r[1] = c[2]+w[2]*(l[2]+r[2]);
+				r[0] = c[1]+w[1]*(l[1]+r[1]);
+				out1 = c[0]+w[0]*(l[0]+r[0]);
+
+				// scales
+				out0 = out0 * 1/zeta;
+				out1 = out1 *   zeta;
+
+				// outputs
+				arr_local[0+0+s*2] = out0;
+				arr_local[0+1+s*2] = out1;
+
+				// update l[]
+				l[0] = r[0];
+				l[1] = r[1];
+				l[2] = r[2];
+				l[3] = r[3];
+			}
+
+			// slide out right border
+			arr_local[steps*2+0] = l[0];
+			arr_local[steps*2+1] = l[1];
+			arr_local[steps*2+2] = l[2];
+			arr_local[steps*2+3] = l[3];
+		}
+	}
+	else
+	{
+		// fallback, not implemented
+		accel_lift_op4s_main_s(arr, steps, alpha, beta, gamma, delta, zeta, scaling);
+	}
+}
+
 int dwt_util_is_aligned_8(
 	const void *ptr)
 {
@@ -1765,7 +1911,6 @@ void accel_lift_op4s_short_s(
 
 	for(int w = 0; w < dwt_util_get_num_workers(); w++)
 	{
-		// TODO: fix bordering element due to non-64-bits alignment hack
 		float *arr_local = calc_temp_offset_s(arr, w);
 
 		if(off)
@@ -1989,6 +2134,10 @@ void accel_lift_op4s_s(
 		{
 			off = 0;
 			accel_lift_op4s_main_pb_s(arr+off, (to_even(len-off)-4)/2, alpha, beta, gamma, delta, zeta, scaling);
+		}
+		else if(4 == get_accel_type())
+		{
+			accel_lift_op4s_main_dl_s(arr+off, (to_even(len-off)-4)/2, alpha, beta, gamma, delta, zeta, scaling);
 		}
 		else
 			dwt_util_abort(); // unsupported value
@@ -4182,7 +4331,7 @@ void dwt_util_test()
 {
 	for(int i = 2; i <= BANK_SIZE; i *= 2)
 	{
-		dwt_util_log(LOG_TEST, "alloc vector of %i floats...\n", i);
+		dwt_util_log(LOG_TEST, "allocate vector of %i floats...\n", i);
 		float *addr = dwt_util_allocate_vec_s(i);
 		if( !addr )
 		{
@@ -4356,10 +4505,13 @@ const char *appname()
 		// FIXME: PAGE_SIZE
 #define MAX_CMDLINE_LEN 4096
 		static char buff[MAX_CMDLINE_LEN]; // NOTE: global variable
-		fgets(buff, MAX_CMDLINE_LEN, f);
+		char *ret = fgets(buff, MAX_CMDLINE_LEN, f);
 		fclose(f);
 		
-		return basename(buff);
+		if(ret)
+			return basename(buff);
+		else
+			return "unknown";
 	}
 	else
 		return "unknown";
@@ -4368,4 +4520,24 @@ const char *appname()
 const char *dwt_util_appname()
 {
 	return appname();
+}
+
+static
+int get_opt_stride(int min_stride)
+{
+	assert( min_stride > 0 );
+
+#ifdef microblaze
+	// align to 32 bits due to MicroBlaze constraints
+	return align_8(min_stride);
+#else
+	// FIXME: find prime number not lesser than min_stride
+	// HACK: use odd number grather than min_stride instead of finding prime number
+	return to_odd(min_stride) + 2;
+#endif
+}
+
+int dwt_util_get_opt_stride(int min_stride)
+{
+	return get_opt_stride(min_stride);
 }
