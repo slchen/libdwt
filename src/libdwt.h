@@ -828,7 +828,9 @@ void dwt_util_set_num_workers(
  *   @li 1 for BCE implementation if available (ASVP platform),
  *   @li 2 for empty implementation (for performance measurement),
  *   @li 3 for test BCE implementation on whole data vector (ASVP platform),
- *   @li 4 for CPU double-loop algorithm.
+ *   @li 4 for CPU double-loop algorithm,
+ *   @li 5 for CPU shifted double-loop SIMD algorithm (reference implementation),
+ *   @li 6 for CPU shifted double-loop SIMD algorithm (SSE implementation, not implemented yet).
  *
  * @warning highly experimental
  */
@@ -1056,11 +1058,20 @@ const char *dwt_util_appname();
  * Gets optimal data stride according to cache usage.
  * 
  * @return Returns optimal stride in bytes.
- * 
- * @warning experimental
  */
 int dwt_util_get_opt_stride(
 	int min_stride		///< minimum required stride (in bytes)
+);
+
+/**
+ * @brief Determine if a number is probable prime.
+ * 
+ * Currently uses variant of Fermat primality test for base-2.
+ * 
+ * @return Non-zero value for probable prime, zero otherwise.
+ */
+int dwt_util_is_prime(
+	int N	///< the number to test
 );
 
 /**

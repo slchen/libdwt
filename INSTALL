@@ -12,3 +12,22 @@ library compilation. You can test it on example application in directory
 ./examples/simple with command:
 
 make ARCH=microblaze
+
+PC platform
+===========
+Compile the example application like above but with command:
+
+make ARCH=x86_64
+
+For example, a simple application showing libdwt API usage can be compiled
+and started with:
+
+make -C examples/simple run
+
+== Dependencies ==
+* glibc/uClibc
+* ASVP/EdkDSP SDK (optional on ASVP)
+* Make
+* GCC
+** OpenMP support (optional)
+* PicoBlaze C Compiler Toolchain V2 (optional on ASVP)

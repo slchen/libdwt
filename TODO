@@ -16,7 +16,6 @@
 * group lifting steps into one for-loop (suitable for SIMD implementation and UTIA ASVP platform)
 * 2D DWT: single-loop approach (iteration of horizontal part is immediately fed into iteration of vertical part)
 * memory access through incremented pointers instead of indexed arrays
-* cache optimizations (stride should be a prime?)
 * use size_t, ssize_t, etc. instead of unsigned int, int, ...
 * 3D data support
 * ARM support

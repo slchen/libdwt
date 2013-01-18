@@ -23,6 +23,9 @@ endif
 
 $(LIBNAME).o: $(LIBNAME).c $(LIBNAME).h
 
+$(LIBNAME).S: $(LIBNAME).c $(LIBNAME).h
+	$(CC) $(CFLAGS) -S -Wa,-adhln -g -fverbose-asm $< -o $@
+
 # $(LIBNAME).a: $(LIBNAME).o
 # 	$(AR) -rsc $@ $^
 # 

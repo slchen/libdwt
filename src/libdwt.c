@@ -362,6 +362,7 @@ int is_valid_data_step_s(const float *data_step)
 #include <string.h> // memcpy
 #include <stdarg.h> // va_start, va_end
 #include <malloc.h> // memalign
+#include <float.h> // FLT_EPSILON
 
 /** OpenMP header when used */
 #ifdef _OPENMP
@@ -727,6 +728,13 @@ int is_aligned_8(
 }
 
 static
+int is_aligned_16(
+	const void *ptr)
+{
+	return ( (intptr_t)ptr&(intptr_t)(16-1) ) ? 0 : 1;
+}
+
+static
 intptr_t align_4(
 	intptr_t p)
 {
@@ -740,10 +748,29 @@ intptr_t align_8(
 	return (p+(8-1))&(~(8-1));
 }
 
+static
+intptr_t align_16(
+	intptr_t p)
+{
+	return (p+(16-1))&(~(16-1));
+}
+
+intptr_t dwt_util_align_4(
+	intptr_t p)
+{
+	return align_4(p);
+}
+
 intptr_t dwt_util_align_8(
 	intptr_t p)
 {
 	return align_8(p);
+}
+
+intptr_t dwt_util_align_16(
+	intptr_t p)
+{
+	return align_16(p);
 }
 
 /** Calc offset in temp[] array for current worker. Preserves alignment on 8 bytes. */
@@ -770,7 +797,8 @@ int calc_and_set_temp_size(
 
 	return 2 + to_even( 2 + (temp_step+2) * get_active_workers() );
 #else
-	return temp_step;
+	// FIXME HACK: + 3*float => 16-align
+	return temp_step + 3;
 #endif
 }
 
@@ -890,11 +918,11 @@ void *dwt_util_memcpy_stride_s(
 	}
 	else
 	{
-		char *ptr_dst = (char *)dst;
-		const char *ptr_src = (const char *)src;
+		char *restrict ptr_dst = (char *restrict)dst;
+		const char *restrict ptr_src = (const char *restrict)src;
 		for(size_t i = 0; i < n; i++)
 		{
-			*(float *)ptr_dst = *(const float *)ptr_src;
+			*(float *restrict)ptr_dst = *(const float *restrict)ptr_src;
 	
 			ptr_dst += stride_dst;
 			ptr_src += stride_src;
@@ -932,11 +960,11 @@ void *dwt_util_memcpy_stride_d(
 	}
 	else
 	{
-		char *ptr_dst = (char *)dst;
-		const char *ptr_src = (const char *)src;
+		char *restrict ptr_dst = (char *restrict)dst;
+		const char *restrict ptr_src = (const char *restrict)src;
 		for(size_t i = 0; i < n; i++)
 		{
-			*(double *)ptr_dst = *(const double *)ptr_src;
+			*(double *restrict)ptr_dst = *(const double *restrict)ptr_src;
 	
 			ptr_dst += stride_dst;
 			ptr_src += stride_src;
@@ -1462,6 +1490,475 @@ void accel_lift_op4s_main_s(
 			}
 		}
 	}
+}
+
+static
+void op4s_sdl_import_s_ref(float *l, const float *restrict addr, int idx)
+{
+	l[idx] = addr[idx];
+}
+
+static
+void op4s_sdl_shuffle_s_ref(float *c, float *r)
+{
+	c[0]=c[1]; c[1]=c[2]; c[2]=c[3];
+	r[0]=r[1]; r[1]=r[2]; r[2]=r[3];
+}
+
+static
+void op4s_sdl_load_s_ref(float *in, const float *restrict addr)
+{
+	in[0] = addr[0];
+	in[1] = addr[1];
+}
+
+static
+void op4s_sdl_input_s_ref(const float *in, float *c, float *r)
+{
+	c[3] = in[0];
+	r[3] = in[1];
+}
+
+static
+void op4s_sdl_op_s_ref(float *z, const float *c, const float *w, const float *l, const float *r)
+{
+	z[3] = c[3] + w[3] * ( l[3] + r[3] );
+	z[2] = c[2] + w[2] * ( l[2] + r[2] );
+	z[1] = c[1] + w[1] * ( l[1] + r[1] );
+	z[0] = c[0] + w[0] * ( l[0] + r[0] );
+}
+
+static
+void op4s_sdl_update_s_ref(float *c, float *l, float *r, const float *z)
+{
+	c[0] = l[0];
+	c[1] = l[1];
+	c[2] = l[2];
+	c[3] = l[3];
+
+	l[0] = r[0];
+	l[1] = r[1];
+	l[2] = r[2];
+	l[3] = r[3];
+
+	r[0] = z[0];
+	r[1] = z[1];
+	r[2] = z[2];
+	r[3] = z[3];
+}
+
+static
+void op4s_sdl_output_s_ref(float *out, const float *l, const float *z)
+{
+	out[0] = l[0];
+	out[1] = z[0];
+}
+
+static
+void op4s_sdl_scale_s_ref(float *out, const float *v)
+{
+	out[0] *= v[0];
+	out[1] *= v[1];
+}
+
+static
+void op4s_sdl_descale_s_ref(float *in, const float *v)
+{
+	in[0] *= v[0];
+	in[1] *= v[1];
+}
+
+static
+void op4s_sdl_save_s_ref(float *out, float *restrict addr)
+{
+	addr[0] = out[0];
+	addr[1] = out[1];
+}
+
+static
+void op4s_sdl_export_s_ref(const float *l, float *restrict addr, int idx)
+{
+	addr[idx] = l[idx];
+}
+
+static
+void op4s_sdl_pass_fwd_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// shuffle
+	op4s_sdl_shuffle_s_ref(c, r);
+
+	// load (load input from memory)
+	op4s_sdl_load_s_ref(in, *addr+4);
+
+	// descale
+	// NOTE: no in forward transform
+	UNUSED(v);
+
+	// input (put input into registers)
+	op4s_sdl_input_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl_op_s_ref(z, c, w, l, r);
+
+	// output (get output from registers)
+	// NOTE: prolog do not procuce output
+	UNUSED(out);
+
+	// scale
+	// NOTE: prolog do not procuce output
+
+	// save (store output into memory)
+	// NOTE: prolog do not procuce output
+
+	// update (update registers)
+	op4s_sdl_update_s_ref(c, l, r, z);
+
+	// pointers (update pointers to next location)
+	(*addr) += 2;
+}
+
+static
+void op4s_sdl_pass_inv_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// shuffle
+	op4s_sdl_shuffle_s_ref(c, r);
+
+	// load (load input from memory)
+	op4s_sdl_load_s_ref(in, *addr+4);
+
+	// descale
+	op4s_sdl_descale_s_ref(in, v);
+
+	// input (put input into registers)
+	op4s_sdl_input_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl_op_s_ref(z, c, w, l, r);
+
+	// output (get output from registers)
+	// NOTE: prolog do not procuce output
+	UNUSED(out);
+
+	// scale
+	// NOTE: prolog do not procuce output + no in inverse transform
+
+	// save (store output into memory)
+	// NOTE: prolog do not procuce output
+
+	// update (update registers)
+	op4s_sdl_update_s_ref(c, l, r, z);
+
+	// pointers (update pointers to next location)
+	(*addr) += 2;
+}
+
+static
+void op4s_sdl_pass_fwd_core_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// shuffle
+	op4s_sdl_shuffle_s_ref(c, r);
+
+	// load (load input from memory)
+	op4s_sdl_load_s_ref(in, *addr+4);
+
+	// descale
+	// NOTE: no in forward transform
+
+	// input (put input into registers)
+	op4s_sdl_input_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl_op_s_ref(z, c, w, l, r);
+
+	// output (get output from registers)
+	op4s_sdl_output_s_ref(out, l, z);
+
+	// scale
+	op4s_sdl_scale_s_ref(out, v);
+
+	// save (store output into memory)
+	op4s_sdl_save_s_ref(out, *addr-6);
+
+	// update (update registers)
+	op4s_sdl_update_s_ref(c, l, r, z);
+
+	// pointers (update pointers to next location)
+	(*addr) += 2;
+}
+
+static
+void op4s_sdl_pass_inv_core_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// shuffle
+	op4s_sdl_shuffle_s_ref(c, r);
+
+	// load (load input from memory)
+	op4s_sdl_load_s_ref(in, *addr+4);
+
+	// descale
+	op4s_sdl_descale_s_ref(in, v);
+
+	// input (put input into registers)
+	op4s_sdl_input_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl_op_s_ref(z, c, w, l, r);
+
+	// output (get output from registers)
+	op4s_sdl_output_s_ref(out, l, z);
+
+	// scale
+	// NOTE: no in inverse transform
+
+	// save (store output into memory)
+	op4s_sdl_save_s_ref(out, *addr-6);
+
+	// update (update registers)
+	op4s_sdl_update_s_ref(c, l, r, z);
+
+	// pointers (update pointers to next location)
+	(*addr) += 2;
+}
+
+static
+void op4s_sdl_pass_fwd_epilog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// shuffle
+	op4s_sdl_shuffle_s_ref(c, r);
+
+	// load (load input from memory)
+	// NOTE: epilog do not read input
+	UNUSED(in);
+
+	// descale
+	// NOTE: no in forward transform and epilog do not read input
+
+	// input (put input into registers)
+	// NOTE: epilog do not read input
+
+	// operation
+	op4s_sdl_op_s_ref(z, c, w, l, r);
+
+	// output (get output from registers)
+	op4s_sdl_output_s_ref(out, l, z);
+
+	// scale
+	op4s_sdl_scale_s_ref(out, v);
+
+	// save (store output into memory)
+	op4s_sdl_save_s_ref(out, *addr-6);
+
+	// update (update registers)
+	op4s_sdl_update_s_ref(c, l, r, z);
+
+	// pointers (update pointers to next location)
+	(*addr) += 2;
+}
+
+static
+void op4s_sdl_pass_inv_epilog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// shuffle
+	op4s_sdl_shuffle_s_ref(c, r);
+
+	// load (load input from memory)
+	// NOTE: epilog do not read input
+	UNUSED(in);
+
+	// descale
+	// NOTE: epilog do not read input
+
+	// input (put input into registers)
+	// NOTE: epilog do not read input
+
+	// operation
+	op4s_sdl_op_s_ref(z, c, w, l, r);
+
+	// output (get output from registers)
+	op4s_sdl_output_s_ref(out, l, z);
+
+	// scale
+	// NOTE: no in inverse transform
+
+	// save (store output into memory)
+	op4s_sdl_save_s_ref(out, *addr-6);
+
+	// update (update registers)
+	op4s_sdl_update_s_ref(c, l, r, z);
+
+	// pointers (update pointers to next location)
+	(*addr) += 2;
+}
+
+static
+void accel_lift_op4s_main_sdl_ref_s(
+	float *restrict arr,
+	int steps,
+	float alpha,
+	float beta,
+	float gamma,
+	float delta,
+	float zeta,
+	int scaling)
+{
+	// 6+ coeffs implies 3+ steps
+	assert( steps >= 3 );
+
+	assert( is_aligned_16(arr) );
+
+	const float w[4] = { delta, gamma, beta, alpha };
+	const float v[4] = { 1/zeta, zeta, 1/zeta, zeta };
+	float l[4];
+	float c[4];
+	float r[4];
+	float z[4];
+	float in[4];
+	float out[4];
+
+	if( scaling < 0 )
+	{
+		// inverse transform
+
+		// FIXME(ASVP)
+		assert( 1 == dwt_util_get_num_workers() );
+
+		// NOTE: *** init ***
+
+		// this pointer is needed because of use of arr[] in import and export functions
+		float *restrict addr = arr;
+
+		// NOTE: *** prolog2 ***
+
+		// NOTE: prolog2: import(3)
+		op4s_sdl_import_s_ref(l, arr, 3);
+
+		// NOTE: prolog2: pass-prolog
+		op4s_sdl_pass_inv_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+	
+		// NOTE: prolog2: import(2)
+		op4s_sdl_import_s_ref(l, arr, 2);
+
+		// NOTE: prolog2: pass-prolog
+		op4s_sdl_pass_inv_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: prolog2: import(1)
+		op4s_sdl_import_s_ref(l, arr, 1);
+
+		// NOTE: prolog2: pass-prolog
+		op4s_sdl_pass_inv_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: prolog2: import(0)
+		op4s_sdl_import_s_ref(l, arr, 0);
+
+		// NOTE: *** core ***
+
+		// NOTE: core: for s = 0 to S-3 do
+		for(int s = 0; s < steps-3; s++)
+		{
+			// NOTE: core: pass-core
+			op4s_sdl_pass_inv_core_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		}
+
+		// NOTE: *** epilog2 ***
+
+		// NOTE: epilog2: export(3)
+		op4s_sdl_export_s_ref(l, &arr[2*steps], 3);
+
+		// NOTE: epilog2: pass-epilog
+		op4s_sdl_pass_inv_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: epilog2: export(2)
+		op4s_sdl_export_s_ref(l, &arr[2*steps], 2);
+
+		// NOTE: epilog2: pass-epilog
+		op4s_sdl_pass_inv_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: epilog2: export(1)
+		op4s_sdl_export_s_ref(l, &arr[2*steps], 1);
+
+		// NOTE: epilog2: pass-epilog
+		op4s_sdl_pass_inv_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: epilog2: export(0)
+		op4s_sdl_export_s_ref(l, &arr[2*steps], 0);
+	}
+	else if ( scaling > 0 )
+	{
+		// forward transform
+
+		// FIXME(ASVP)
+		assert( 1 == dwt_util_get_num_workers() );
+
+		// NOTE: *** init ***
+
+		// this pointer is needed because of use of arr[] in import and export functions
+		float *restrict addr = arr;
+
+		// NOTE: *** prolog2 ***
+
+		// NOTE: prolog2: import(3)
+		op4s_sdl_import_s_ref(l, arr, 3);
+
+		// NOTE: prolog2: pass-prolog
+		op4s_sdl_pass_fwd_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+	
+		// NOTE: prolog2: import(2)
+		op4s_sdl_import_s_ref(l, arr, 2);
+
+		// NOTE: prolog2: pass-prolog
+		op4s_sdl_pass_fwd_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: prolog2: import(1)
+		op4s_sdl_import_s_ref(l, arr, 1);
+
+		// NOTE: prolog2: pass-prolog
+		op4s_sdl_pass_fwd_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: prolog2: import(0)
+		op4s_sdl_import_s_ref(l, arr, 0);
+
+		// NOTE: *** core ***
+
+		// NOTE: core: for s = 0 to S-3 do
+		for(int s = 0; s < steps-3; s++)
+		{
+			// NOTE: core: pass-core
+			op4s_sdl_pass_fwd_core_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		}
+
+		// NOTE: *** epilog2 ***
+
+		// NOTE: epilog2: export(3)
+		op4s_sdl_export_s_ref(l, &arr[2*steps], 3);
+
+		// NOTE: epilog2: pass-epilog
+		op4s_sdl_pass_fwd_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: epilog2: export(2)
+		op4s_sdl_export_s_ref(l, &arr[2*steps], 2);
+
+		// NOTE: epilog2: pass-epilog
+		op4s_sdl_pass_fwd_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: epilog2: export(1)
+		op4s_sdl_export_s_ref(l, &arr[2*steps], 1);
+
+		// NOTE: epilog2: pass-epilog
+		op4s_sdl_pass_fwd_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// NOTE: epilog2: export(0)
+		op4s_sdl_export_s_ref(l, &arr[2*steps], 0);
+	}
+	else
+	{
+		// transform w/o scaling
+
+		// not implemented yet
+		dwt_util_abort();
+	}
+
 }
 
 /**
@@ -2072,7 +2569,7 @@ void accel_lift_op4s_short_s(
 
 static
 void accel_lift_op4s_s(
-	float *arr,
+	float *restrict arr,
 	int off,
 	int len,
 	float alpha,
@@ -2138,6 +2635,16 @@ void accel_lift_op4s_s(
 		else if(4 == get_accel_type())
 		{
 			accel_lift_op4s_main_dl_s(arr+off, (to_even(len-off)-4)/2, alpha, beta, gamma, delta, zeta, scaling);
+		}
+		else if(5 == get_accel_type())
+		{
+			// C reference
+			accel_lift_op4s_main_sdl_ref_s(arr+off, (to_even(len-off)-4)/2, alpha, beta, gamma, delta, zeta, scaling);
+		}
+		else if(6 == get_accel_type())
+		{
+			// TODO: SIMD (SSE + 2*3=6 unpacked loops, i.e. 12 coeffs in one iteration)
+			dwt_util_abort();
 		}
 		else
 			dwt_util_abort(); // unsupported value
@@ -2939,8 +3446,13 @@ void dwt_cdf97_2f_s(
 	#define TEMP_OFFSET 1
 	float *temp = dwt_util_allocate_vec_s(calc_and_set_temp_size(size_o_big_max));
 #else
-	#define TEMP_OFFSET 0
-	float temp[calc_and_set_temp_size(size_o_big_max)];
+	//#define TEMP_OFFSET 0
+	// HACK FIXME: __attribute__ ((aligned (16)))
+	#define TEMP_OFFSET 3
+	float temp[calc_and_set_temp_size(size_o_big_max)] __attribute__ ((aligned (16)));
+	
+	if( !is_aligned_16(temp) )
+		dwt_util_abort();
 #endif
 	if(NULL == temp)
 		abort(); // FIXME
@@ -4145,9 +4657,9 @@ void dwt_util_abort()
 		// deinitialize worker
 		wal_done_worker(worker[w]);
 	}
+#endif /* microblaze */
 
 	abort();
-#endif /* microblaze */
 
 	FUNC_END;
 }
@@ -4172,15 +4684,41 @@ int dwt_util_save_to_pgm_s(
 	fprintf(file, "P2\n%i %i\n%i\n", size_i_big_x, size_i_big_y, target_max_value);
 
 	for(int y = 0; y < size_i_big_y; y++)
+	{
 		for(int x = 0; x < size_i_big_x; x++)
 		{
 			const float px = *addr2_s(ptr, y, x, stride_x, stride_y);
-			if( fprintf(file, "%i\n", (int)(target_max_value*px/max_value)) < 0)
+
+			int val = (target_max_value*px/max_value);
+
+			if( px - 10*FLT_EPSILON > max_value )
 			{
+				dwt_util_log(LOG_WARN, "%s: maximum pixel intensity exceeded (%f > %f).\n", __FUNCTION__, px, max_value);
+			}
+
+			if( px > max_value )
+			{
+				val = target_max_value;
+			}
+
+			if( px + 10*FLT_EPSILON < 0.0f )
+			{
+				dwt_util_log(LOG_WARN, "%s: minimum pixel intensity exceeded (%f < %f).\n", __FUNCTION__, px, 0.0f);
+			}
+
+			if( px < 0.0f )
+			{
+				val = 0;
+			}
+
+			if( fprintf(file, "%i\n", val) < 0)
+			{
+				dwt_util_log(LOG_WARN, "%s: error writing into file.\n", __FUNCTION__);
 				fclose(file);
 				return 1;
 			}
 		}
+	}
 
 	fclose(file);
 
@@ -4272,6 +4810,21 @@ float *dwt_util_allocate_8_vec_s(int size)
 	addr = (float *)memalign(8, sizeof(float) * size);
 
 	assert( is_aligned_8(addr) );
+
+	return addr;
+}
+
+// 16-bytes alignment
+float *dwt_util_allocate_16_vec_s(int size)
+{
+	assert( is_even(size) );
+
+	float *addr = (float *)0;
+
+	// http://git.uclibc.org/uClibc/tree/include - memalign, posix_memalign
+	addr = (float *)memalign(16, sizeof(float) * size);
+
+	assert( is_aligned_16(addr) );
 
 	return addr;
 }
@@ -4456,6 +5009,8 @@ int dwt_util_log(
 		[LOG_TEST] = "TEST: ",
 	};
 
+	flockfile(stream);
+
 	ret += dwt_util_fprintf(stream, prefix[level]);
 
 	va_list ap;
@@ -4465,6 +5020,8 @@ int dwt_util_log(
 	va_end(ap);
 
 	fflush(stream);
+
+	funlockfile(stream);
 
 	return ret;
 }
@@ -4478,14 +5035,19 @@ const char *node()
 		// FIXME: HOST_NAME_MAX, HOSTNAME_LENGTH, MAXHOSTNAMELEN
 #define MAX_NODE_LEN 256
 		static char buff[MAX_NODE_LEN]; // NOTE: global variable
-		fgets(buff, MAX_NODE_LEN, f);
+		const char *ret = fgets(buff, MAX_NODE_LEN, f);
 		fclose(f);
 
-		char *nl = strchr(buff, '\n');
-		if(nl)
-			*nl = 0;
-		
-		return buff;
+		if(ret)
+		{
+			char *nl = strchr(buff, '\n');
+			if(nl)
+				*nl = 0;
+
+			return buff;
+		}
+		else
+			return "unknown";
 	}
 	else
 		return "unknown";
@@ -4505,7 +5067,7 @@ const char *appname()
 		// FIXME: PAGE_SIZE
 #define MAX_CMDLINE_LEN 4096
 		static char buff[MAX_CMDLINE_LEN]; // NOTE: global variable
-		char *ret = fgets(buff, MAX_CMDLINE_LEN, f);
+		const char *ret = fgets(buff, MAX_CMDLINE_LEN, f);
 		fclose(f);
 		
 		if(ret)
@@ -4523,6 +5085,85 @@ const char *dwt_util_appname()
 }
 
 static
+int find_dfa_seq(int N)
+{
+	int state = 1;
+
+	int count = 0;
+
+	do
+	{
+		const int addr = 2 * state;
+
+		state = addr - N * (addr >= N);
+
+		count++;
+
+		if( 1 == state )
+			return count;
+	}
+	while( count < 2*N );
+
+	return 0;
+}
+
+/**
+ * @brief Variant of Fermat primality test for base-2.
+ */
+static
+int is_prime(int N)
+{
+	// 2 is prime
+	if( 2 == N )
+		return 1;
+
+	// even numbers are not primes, i.e. 0, 2, 4, 6, 8, ...
+	if( !(N & 1) )
+		return 0;
+
+	// negative numbers and unity are not prime numbers, i.e. ..., -2, -1, 0, 1
+	if( N < 2 )
+		return 0;
+
+	// number of zeros after leading one-bit in left side of Fermat's little theorem with base 2
+	const int d = N - 1;
+
+	// length of zero-bit sequence after leading one-bit accepted by DFA which accepts numbers congruent to 1 modulo N
+	const int c = find_dfa_seq(N);
+
+	// can DFA accept a big number in the left side of Fermat's little theorem?
+	const int r = d % c;
+
+	// if can then we got probably prime
+	if( 0 == r )
+		return 1;
+
+	return 0;
+}
+
+int dwt_util_is_prime(int N)
+{
+	return is_prime(N);
+}
+
+/**
+ * @brief Returns smallest prime not less than N.
+ */
+static
+int next_prime(int N)
+{
+	if( N <= 2 )
+		return 2;
+
+	N |= 1;
+
+	while( !is_prime(N) )
+		N += 2;
+
+	return N;
+}
+
+static
 int get_opt_stride(int min_stride)
 {
 	assert( min_stride > 0 );
@@ -4531,9 +5172,8 @@ int get_opt_stride(int min_stride)
 	// align to 32 bits due to MicroBlaze constraints
 	return align_8(min_stride);
 #else
-	// FIXME: find prime number not lesser than min_stride
-	// HACK: use odd number grather than min_stride instead of finding prime number
-	return to_odd(min_stride) + 2;
+	// find prime number not lesser than min_stride
+	return next_prime(min_stride);
 #endif
 }
 

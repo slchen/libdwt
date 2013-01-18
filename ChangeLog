@@ -1,3 +1,9 @@
+2013-01-18 David Barina <ibarina@fit.vutbr.cz>
+* Added primality testing support together with better optimal stride
+estimation.
+* Added initial lifting implementation using shifted double-loop algorithm.
+* Several bugfixes.
+
 2012-11-29 David Barina <ibarina@fit.vutbr.cz>
 * Added support for double-loop lifting algorithm.
 * Added initial support for optimal stride selection.
