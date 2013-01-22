@@ -1074,6 +1074,47 @@ int dwt_util_is_prime(
 	int N	///< the number to test
 );
 
+enum subbands {
+	DWT_LL,		///< subband filtered by LP filter horizontally and vertically
+	DWT_HL,		///< subband filtered by HP horizontally and LP vertically
+	DWT_LH,		///< subband filtered by HP vertically and LP horizontally
+	DWT_HH		///< subband filtered by HP filter horizontally and vertically
+};
+
+/**
+ * @brief Gets pointer to and sizes of the selected subband (LL, HL, LH or HH).
+ * 
+ * @warning highly experimental
+ */
+void dwt_util_subband_s(
+	void *ptr,		///< pointer to beginning of image data
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_o_big_x,	///< width of outer image frame (in elements)
+	int size_o_big_y,	///< height of outer image frame (in elements)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y,	///< height of nested image (in elements)
+	int j_max,		///< pointer to the decomposition level of interest
+	enum subbands band,	///< subband of interest (LL, HL, LH, HH)
+	void **dst_ptr,		///< here will be stored pointer to beginning of subband data
+	int *dst_size_x,	///< here will be stored width of subband
+	int *dst_size_y		///< here will be stored height of subband
+);
+
+/**
+ * @brief Compute address of given transform coefficient or image pixel.
+ * 
+ * @warning slow; faster way is calculate the address directly
+ * @warning highly experimental
+ */
+float *dwt_util_addr_coeff_s(
+	void *ptr,		///< pointer to beginning of image data
+	int y,			///< x-coordinate
+	int x,			///< y-coordinate
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y		///< difference between columns (in bytes)
+);
+
 /**
  * @}
  */

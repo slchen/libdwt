@@ -890,6 +890,16 @@ float *addr2_s(
 	return (float *)((char *)ptr+y*stride_x+x*stride_y);
 }
 
+float *dwt_util_addr_coeff_s(
+	void *ptr,
+	int y,
+	int x,
+	int stride_x,
+	int stride_y)
+{
+	return addr2_s(ptr, y, x, stride_x, stride_y);
+}
+
 /**
  * @brief Copy memory area.
  *
@@ -1790,6 +1800,21 @@ void op4s_sdl_pass_inv_epilog_s_ref(const float *w, const float *v, float *l, fl
 	(*addr) += 2;
 }
 
+// TODO: 2 iterations merged, i.e. loads 4 (2*2) coeffs in every iter.
+static
+void accel_lift_op4s_main_sdl2_ref_s(
+	float *restrict arr,
+	int steps,
+	float alpha,
+	float beta,
+	float gamma,
+	float delta,
+	float zeta,
+	int scaling)
+{
+
+}
+
 static
 void accel_lift_op4s_main_sdl_ref_s(
 	float *restrict arr,
@@ -2638,12 +2663,15 @@ void accel_lift_op4s_s(
 		}
 		else if(5 == get_accel_type())
 		{
-			// C reference
-			accel_lift_op4s_main_sdl_ref_s(arr+off, (to_even(len-off)-4)/2, alpha, beta, gamma, delta, zeta, scaling);
+			const int steps = (to_even(len-off)-4)/2;
+			if( steps < 3 )
+				accel_lift_op4s_main_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
+			else
+				accel_lift_op4s_main_sdl_ref_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
 		}
 		else if(6 == get_accel_type())
 		{
-			// TODO: SIMD (SSE + 2*3=6 unpacked loops, i.e. 12 coeffs in one iteration)
+			// TODO: SIMD (SSE + 2*3=6 unpacked loops, i.e. 12 (2*2*3) coeffs in one iteration)
 			dwt_util_abort();
 		}
 		else
@@ -5180,4 +5208,68 @@ int get_opt_stride(int min_stride)
 int dwt_util_get_opt_stride(int min_stride)
 {
 	return get_opt_stride(min_stride);
+}
+
+void dwt_util_subband_s(
+	void *ptr,
+	int stride_x,
+	int stride_y,
+	int size_o_big_x,
+	int size_o_big_y,
+	int size_i_big_x,
+	int size_i_big_y,
+	int j_max,
+	enum subbands band,
+	void **dst_ptr,
+	int *dst_size_x,
+	int *dst_size_y)
+{
+	int inner_H_x = 0;
+	int inner_H_y = 0;
+	int inner_L_x = size_i_big_x;
+	int inner_L_y = size_i_big_y;
+	int outer_x = size_o_big_x;
+	int outer_y = size_o_big_y;
+
+	for(int j = 1; j <= j_max; j++)
+	{
+		inner_H_x = floor_div2(inner_L_x);
+		inner_H_y = floor_div2(inner_L_y);
+		inner_L_x = ceil_div2 (inner_L_x);
+		inner_L_y = ceil_div2 (inner_L_y);
+		outer_x   = ceil_div2 (outer_x);
+		outer_y   = ceil_div2 (outer_y);
+	}
+
+	switch(band)
+	{
+		case DWT_LL:
+			*dst_ptr = addr2_s(ptr,
+				0, 0,
+				stride_x, stride_y);
+			*dst_size_x = inner_L_x;
+			*dst_size_y = inner_L_y;
+			break;
+		case DWT_HL:
+			*dst_ptr = addr2_s(ptr,
+				0, outer_x,
+				stride_x, stride_y);
+			*dst_size_x = inner_H_x;
+			*dst_size_y = inner_L_y;
+			break;
+		case DWT_LH:
+			*dst_ptr = addr2_s(ptr,
+				outer_y, 0,
+				stride_x, stride_y);
+			*dst_size_x = inner_L_x;
+			*dst_size_y = inner_H_y;
+			break;
+		case DWT_HH:
+			*dst_ptr = addr2_s(ptr,
+				outer_y, outer_x,
+				stride_x, stride_y);
+			*dst_size_x = inner_H_x;
+			*dst_size_y = inner_H_y;
+			break;
+	}
 }
