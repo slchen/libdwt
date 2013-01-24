@@ -814,14 +814,18 @@ void dwt_util_set_num_threads(
 );
 
 /**
- * @brief Set the number of active numbers.
+ * @brief Set the number of active workers.
  */
 void dwt_util_set_num_workers(
 	int num_workers		///< the number of workers
 );
 
 /**
- * @brief Enable block-acceleration using workers in UTIA ASVP platform.
+ * @brief Set algorithm for acceleration of lifting scheme.
+ *
+ * On all platforms, select from one several loop algorithms.
+ * On UTIA ASVP/EdkDSP platform, enable block-acceleration using workers.
+ * On x86 architecture, enable SIMD acceleration using SSE instruction set.
  *
  * @param[in] accel_type Means
  *   @li 0 for CPU multi-loop implementation,
@@ -830,7 +834,10 @@ void dwt_util_set_num_workers(
  *   @li 3 for test BCE implementation on whole data vector (ASVP platform),
  *   @li 4 for CPU double-loop algorithm,
  *   @li 5 for CPU shifted double-loop SIMD algorithm (reference implementation),
- *   @li 6 for CPU shifted double-loop SIMD algorithm (SSE implementation, not implemented yet).
+ *   @li 6 for CPU shifted double-loop SIMD algorithm (2 iterations merged),
+ *   @li 7 for CPU shifted double-loop SIMD algorithm (6 iterations merged),
+ *   @li 8 for CPU shifted double-loop SIMD algorithm (2 iterations merged, SSE implementation, x86 platform, not implemented yet),
+ *   @li 9 for CPU shifted double-loop SIMD algorithm (6 iterations merged, SSE implementation, x86 platform, not implemented yet).
  *
  * @warning highly experimental
  */
@@ -838,7 +845,7 @@ void dwt_util_set_accel(
 	int accel_type);
 
 /**
- * @brief Initialize worker in UTIA ASVP platform.
+ * @brief Initialize workers in UTIA ASVP platform.
  *
  * @warning experimental
  */
@@ -857,6 +864,7 @@ void dwt_util_finish();
  * See <a href="http://netpbm.sourceforge.net/">the home page for Netpbm</a>.
  * This function works with single precision floating point numbers (i.e. float data type).
  *
+ * @note Use @ref dwt_util_conv_show_s function before this function call to save a transform.
  * @warning experimental
  */
 int dwt_util_save_to_pgm_s(
@@ -1102,9 +1110,49 @@ void dwt_util_subband_s(
 );
 
 /**
+ * @brief Gets pointer to and sizes of the selected subband (LL, HL, LH or HH).
+ * 
+ * @warning highly experimental
+ */
+void dwt_util_subband_d(
+	void *ptr,		///< pointer to beginning of image data
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_o_big_x,	///< width of outer image frame (in elements)
+	int size_o_big_y,	///< height of outer image frame (in elements)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y,	///< height of nested image (in elements)
+	int j_max,		///< pointer to the decomposition level of interest
+	enum subbands band,	///< subband of interest (LL, HL, LH, HH)
+	void **dst_ptr,		///< here will be stored pointer to beginning of subband data
+	int *dst_size_x,	///< here will be stored width of subband
+	int *dst_size_y		///< here will be stored height of subband
+);
+
+/**
+ * @brief Gets pointer to and sizes of the selected subband (LL, HL, LH or HH).
+ * 
+ * @warning experimental
+ */
+void dwt_util_subband(
+	void *ptr,		///< pointer to beginning of image data
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_o_big_x,	///< width of outer image frame (in elements)
+	int size_o_big_y,	///< height of outer image frame (in elements)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y,	///< height of nested image (in elements)
+	int j_max,		///< pointer to the decomposition level of interest
+	enum subbands band,	///< subband of interest (LL, HL, LH, HH)
+	void **dst_ptr,		///< here will be stored pointer to beginning of subband data
+	int *dst_size_x,	///< here will be stored width of subband
+	int *dst_size_y		///< here will be stored height of subband
+);
+
+/**
  * @brief Compute address of given transform coefficient or image pixel.
  * 
- * @warning slow; faster way is calculate the address directly
+ * @warning This function is slow; faster way is calculate the address directly.
  * @warning highly experimental
  */
 float *dwt_util_addr_coeff_s(
@@ -1113,6 +1161,45 @@ float *dwt_util_addr_coeff_s(
 	int x,			///< y-coordinate
 	int stride_x,		///< difference between rows (in bytes)
 	int stride_y		///< difference between columns (in bytes)
+);
+
+/**
+ * @brief Compute address of given transform coefficient or image pixel.
+ * 
+ * @warning This function is slow; faster way is calculate the address directly.
+ * @warning highly experimental
+ */
+double *dwt_util_addr_coeff_d(
+	void *ptr,		///< pointer to beginning of image data
+	int y,			///< x-coordinate
+	int x,			///< y-coordinate
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y		///< difference between columns (in bytes)
+);
+
+/**
+ * @brief Compute address of given transform coefficient or image pixel.
+ * 
+ * @warning This function is slow; faster way is calculate the address directly.
+ */
+void *dwt_util_addr_coeff(
+	void *ptr,		///< pointer to beginning of image data
+	int y,			///< x-coordinate
+	int x,			///< y-coordinate
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y		///< difference between columns (in bytes)
+);
+
+/**
+ * @brief Convert transform to viewable format.
+ */
+void dwt_util_conv_show_s(
+	const void *src,	///< transform
+	void *dst,		///< viewable image of transform
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y	///< height of nested image (in elements)
 );
 
 /**

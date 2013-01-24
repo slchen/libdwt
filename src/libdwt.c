@@ -703,6 +703,12 @@ int to_even(
 	return x&~1;
 }
 
+int dwt_util_to_even(
+	int x)
+{
+	return to_even(x);
+}
+
 /**
  * @brief returns closest odd integer not larger than x; works also for negative numbers
  */
@@ -711,6 +717,12 @@ int to_odd(
 	int x)
 {
 	return x - (1&~x);
+}
+
+int dwt_util_to_odd(
+	int x)
+{
+	return to_odd(x);
 }
 
 static
@@ -858,6 +870,17 @@ float *addr1_s(
 	return (float *)((char *)ptr+i*stride);
 }
 
+static
+void *addr2(
+	void *ptr,
+	int y,
+	int x,
+	int stride_x,
+	int stride_y)
+{
+	return (void *)((char *)ptr+y*stride_x+x*stride_y);
+}
+
 /**
  * @brief Helper function returning address of given pixel.
  *
@@ -898,6 +921,26 @@ float *dwt_util_addr_coeff_s(
 	int stride_y)
 {
 	return addr2_s(ptr, y, x, stride_x, stride_y);
+}
+
+double *dwt_util_addr_coeff_d(
+	void *ptr,
+	int y,
+	int x,
+	int stride_x,
+	int stride_y)
+{
+	return addr2_d(ptr, y, x, stride_x, stride_y);
+}
+
+void *dwt_util_addr_coeff(
+	void *ptr,
+	int y,
+	int x,
+	int stride_x,
+	int stride_y)
+{
+	return addr2(ptr, y, x, stride_x, stride_y);
 }
 
 /**
@@ -1106,6 +1149,35 @@ int dwt_util_compare_d(
 		}
 
 	return 0;
+}
+
+void dwt_util_conv_show_s(
+	const void *src,
+	void *dst,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y)
+{
+	assert( src != NULL && dst != NULL && size_i_big_x >= 0 && size_i_big_y >= 0 );
+
+	const float a = 100.f;
+	const float b = 10.f;
+
+	for(int y = 0; y < size_i_big_y; y++)
+	{
+		for(int x = 0; x < size_i_big_x; x++)
+		{
+			const float coeff = *addr2_s(src, y, x, stride_x, stride_y);
+			float *log_coeff = addr2_s(dst, y, x, stride_x, stride_y);
+
+#ifdef microblaze
+			*log_coeff = log(1.f+fabsf(coeff)*a)/b;
+#else
+			*log_coeff = logf(1.f+fabsf(coeff)*a)/b;
+#endif
+		}
+	}
 }
 
 int dwt_util_compare_s(
@@ -1503,6 +1575,185 @@ void accel_lift_op4s_main_s(
 }
 
 static
+void op4s_sdl2_import_preload_s_ref(float *out, const float *restrict addr)
+{
+	out[0] = addr[0];
+	out[1] = addr[1];
+	out[2] = addr[2];
+	out[3] = addr[3];
+}
+
+static
+void op4s_sdl2_import_s_ref(float *l, int idx, const float *out)
+{
+	l[idx] = out[idx];
+}
+
+static
+void op4s_sdl6_import_s_ref(float *l, int idx, const float *out)
+{
+	l[idx] = out[idx];
+}
+
+static
+void op4s_sdl2_load_s_ref(float *in, const float *addr)
+{
+	in[0] = addr[0];
+	in[1] = addr[1];
+	in[2] = addr[2];
+	in[3] = addr[3];
+}
+
+static
+void op4s_sdl2_shuffle_s_ref(float *c, float *r)
+{
+	c[0]=c[1]; c[1]=c[2]; c[2]=c[3];
+	r[0]=r[1]; r[1]=r[2]; r[2]=r[3];
+}
+
+static
+void op4s_sdl2_input_low_s_ref(const float *in, float *c, float *r)
+{
+	c[3] = in[0];
+	r[3] = in[1];
+}
+
+static
+void op4s_sdl2_input_high_s_ref(const float *in, float *c, float *r)
+{
+	c[3] = in[2];
+	r[3] = in[3];
+}
+
+static
+void op4s_sdl2_shuffle_input_low_s_ref(const float *in, float *c, float *r)
+{
+	op4s_sdl2_shuffle_s_ref(c, r);
+	op4s_sdl2_input_low_s_ref(in, c, r);
+}
+
+static
+void op4s_sdl2_shuffle_input_high_s_ref(const float *in, float *c, float *r)
+{
+	op4s_sdl2_shuffle_s_ref(c, r);
+	op4s_sdl2_input_high_s_ref(in, c, r);
+}
+
+static
+void op4s_sdl2_op_s_ref(float *z, const float *c, const float *w, const float *l, const float *r)
+{
+	z[3] = c[3] + w[3] * ( l[3] + r[3] );
+	z[2] = c[2] + w[2] * ( l[2] + r[2] );
+	z[1] = c[1] + w[1] * ( l[1] + r[1] );
+	z[0] = c[0] + w[0] * ( l[0] + r[0] );
+}
+
+static
+void op4s_sdl2_update_s_ref(float *c, float *l, float *r, const float *z)
+{
+	c[0] = l[0];
+	c[1] = l[1];
+	c[2] = l[2];
+	c[3] = l[3];
+
+	l[0] = r[0];
+	l[1] = r[1];
+	l[2] = r[2];
+	l[3] = r[3];
+
+	r[0] = z[0];
+	r[1] = z[1];
+	r[2] = z[2];
+	r[3] = z[3];
+}
+
+static
+void op4s_sdl6_update_s_ref(float *z, float *l, float *r)
+{
+	float t[4];
+
+	t[0] = z[0];
+	t[1] = z[1];
+	t[2] = z[2];
+	t[3] = z[3];
+
+	z[0] = l[0];
+	z[1] = l[1];
+	z[2] = l[2];
+	z[3] = l[3];
+
+	l[0] = r[0];
+	l[1] = r[1];
+	l[2] = r[2];
+	l[3] = r[3];
+
+	r[0] = t[0];
+	r[1] = t[1];
+	r[2] = t[2];
+	r[3] = t[3];
+}
+
+static
+void op4s_sdl2_output_low_s_ref(float *out, const float *l, const float *z)
+{
+	out[0] = l[0];
+	out[1] = z[0];
+}
+
+static
+void op4s_sdl2_output_high_s_ref(float *out, const float *l, const float *z)
+{
+	out[2] = l[0];
+	out[3] = z[0];
+}
+
+static
+void op4s_sdl2_scale_s_ref(float *out, const float *v)
+{
+	out[0] *= v[0];
+	out[1] *= v[1];
+	out[2] *= v[2];
+	out[3] *= v[3];
+}
+
+static
+void op4s_sdl2_descale_s_ref(float *in, const float *v)
+{
+	in[0] *= v[0];
+	in[1] *= v[1];
+	in[2] *= v[2];
+	in[3] *= v[3];
+}
+
+static
+void op4s_sdl2_save_s_ref(float *out, float *addr)
+{
+	addr[0] = out[0];
+	addr[1] = out[1];
+}
+
+static
+void op4s_sdl2_save_shift_s_ref(float *out, float *addr)
+{
+	addr[0] = out[0];
+	addr[1] = out[1];
+	addr[2] = out[2];
+	addr[3] = out[3];
+}
+
+static
+void op4s_sdl2_export_s_ref(const float *l, float *addr, int idx)
+{
+	addr[idx] = l[idx];
+}
+
+static
+void op4s_sdl6_export_s_ref(const float *l, float *addr, int idx)
+{
+	addr[idx] = l[idx];
+}
+
+static
 void op4s_sdl_import_s_ref(float *l, const float *restrict addr, int idx)
 {
 	l[idx] = addr[idx];
@@ -1592,73 +1843,853 @@ void op4s_sdl_export_s_ref(const float *l, float *restrict addr, int idx)
 }
 
 static
+void op4s_sdl2_preload_fwd_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(w);
+	UNUSED(v);
+	UNUSED(l);
+	UNUSED(c);
+	UNUSED(r);
+	UNUSED(z);
+	UNUSED(in);
+
+	op4s_sdl2_import_preload_s_ref(out, (*addr));
+
+ 	(*addr) += 4;
+}
+
+static
+void op4s_sdl2_preload_inv_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(w);
+	UNUSED(v);
+	UNUSED(l);
+	UNUSED(c);
+	UNUSED(r);
+	UNUSED(z);
+	UNUSED(in);
+
+	op4s_sdl2_import_preload_s_ref(out, (*addr));
+
+ 	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_preload_prolog_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(w);
+	UNUSED(v);
+	UNUSED(l);
+	UNUSED(r);
+	UNUSED(z);
+	UNUSED(in);
+
+	op4s_sdl2_import_preload_s_ref(out, (*addr));
+
+ 	(*addr) += 4;
+}
+
+static
+void op4s_sdl2_pass_fwd_prolog_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(out);
+
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl2_pass_inv_prolog_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(out);
+
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// descale
+	op4s_sdl2_descale_s_ref(in, v);
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_pass_inv_prolog_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(out);
+
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// descale
+	op4s_sdl2_descale_s_ref(in, v);
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_pass_fwd_prolog_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(out);
+
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// (descale)
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl2_pass_fwd_prolog_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(out);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+}
+
+static
+void op4s_sdl2_pass_inv_prolog_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(out);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+}
+
+static
+void op4s_sdl6_pass_inv_prolog_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(out);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+}
+
+static
+void op4s_sdl6_pass_fwd_prolog_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(out);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+}
+
+static
+void op4s_sdl2_pass_fwd_core_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+}
+
+static
+void op4s_sdl2_pass_inv_core_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+}
+
+static
+void op4s_sdl6_pass_inv_core_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// (update)
+}
+
+static
+void op4s_sdl6_pass_fwd_core_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// (update)
+}
+
+static
+void op4s_sdl6_pass_inv_postcore_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+}
+
+static
+void op4s_sdl6_pass_fwd_postcore_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(addr);
+
+	// shuffle + input-high
+	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+}
+
+static
+void op4s_sdl2_pass_fwd_core_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// scale
+	op4s_sdl2_scale_s_ref(out, v);
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl2_pass_inv_core_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// descale
+	op4s_sdl2_descale_s_ref(in, v);
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// (scale)
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_pass_inv_core_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// descale
+	op4s_sdl2_descale_s_ref(in, v);
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// (scale)
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// (update)
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_pass_fwd_core_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// (descale)
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// (scale)
+	op4s_sdl2_scale_s_ref(out, v);
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// (update)
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_pass_inv_postcore_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// descale
+	op4s_sdl2_descale_s_ref(in, v);
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// (scale)
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_pass_fwd_postcore_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	// load
+	op4s_sdl2_load_s_ref(in, (*addr));
+
+	// (descale)
+
+	// shuffle + input-low
+	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// (scale)
+	op4s_sdl2_scale_s_ref(out, v);
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl2_pass_fwd_epilog_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(in);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// scale
+	op4s_sdl2_scale_s_ref(out, v);
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl2_pass_inv_epilog_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// (scale)
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_pass_inv_epilog_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// (scale)
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl6_pass_fwd_epilog_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-high
+	op4s_sdl2_output_high_s_ref(out, l, z);
+
+	// (scale)
+	op4s_sdl2_scale_s_ref(out, v);
+
+	// save-shift
+	op4s_sdl2_save_shift_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+
+	// pointers
+	(*addr) += 4;
+}
+
+static
+void op4s_sdl2_pass_fwd_epilog_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+	UNUSED(addr);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+}
+
+static
+void op4s_sdl2_pass_inv_epilog_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+	UNUSED(addr);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+}
+
+static
+void op4s_sdl6_pass_inv_epilog_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+	UNUSED(addr);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+}
+
+static
+void op4s_sdl6_pass_fwd_epilog_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+	UNUSED(addr);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+}
+
+static
+void op4s_sdl2_pass_fwd_epilog_flush_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(in);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// scale
+	op4s_sdl2_scale_s_ref(out, v);
+
+	// save
+	op4s_sdl2_save_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+}
+
+static
+void op4s_sdl2_pass_inv_epilog_flush_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(c, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, c, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// (scale)
+
+	// save
+	op4s_sdl2_save_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl2_update_s_ref(c, l, r, z);
+}
+
+static
+void op4s_sdl6_pass_inv_epilog_flush_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// (scale)
+
+	// save
+	op4s_sdl2_save_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+}
+
+static
+void op4s_sdl6_pass_fwd_epilog_flush_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
+{
+	UNUSED(v);
+	UNUSED(in);
+
+	// shuffle
+	op4s_sdl2_shuffle_s_ref(z, r);
+
+	// operation
+	op4s_sdl2_op_s_ref(z, z, w, l, r);
+
+	// output-low
+	op4s_sdl2_output_low_s_ref(out, l, z);
+
+	// (scale)
+	op4s_sdl2_scale_s_ref(out, v);
+
+	// save
+	op4s_sdl2_save_s_ref(out, (*addr)-12);
+
+	// update
+	op4s_sdl6_update_s_ref(z, l, r);
+}
+
+static
 void op4s_sdl_pass_fwd_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
+	UNUSED(v);
+	UNUSED(out);
+
 	// shuffle
 	op4s_sdl_shuffle_s_ref(c, r);
 
-	// load (load input from memory)
+	// load
 	op4s_sdl_load_s_ref(in, *addr+4);
 
-	// descale
-	// NOTE: no in forward transform
-	UNUSED(v);
+	// (descale)
 
-	// input (put input into registers)
+	// input
 	op4s_sdl_input_s_ref(in, c, r);
 
 	// operation
 	op4s_sdl_op_s_ref(z, c, w, l, r);
 
-	// output (get output from registers)
-	// NOTE: prolog do not procuce output
-	UNUSED(out);
+	// (output)
 
-	// scale
-	// NOTE: prolog do not procuce output
+	// (scale)
 
-	// save (store output into memory)
-	// NOTE: prolog do not procuce output
+	// (save)
 
-	// update (update registers)
+	// update
 	op4s_sdl_update_s_ref(c, l, r, z);
 
-	// pointers (update pointers to next location)
+	// pointers
 	(*addr) += 2;
 }
 
 static
 void op4s_sdl_pass_inv_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
+	UNUSED(out);
+
 	// shuffle
 	op4s_sdl_shuffle_s_ref(c, r);
 
-	// load (load input from memory)
+	// load
 	op4s_sdl_load_s_ref(in, *addr+4);
 
 	// descale
 	op4s_sdl_descale_s_ref(in, v);
 
-	// input (put input into registers)
+	// input
 	op4s_sdl_input_s_ref(in, c, r);
 
 	// operation
 	op4s_sdl_op_s_ref(z, c, w, l, r);
 
-	// output (get output from registers)
-	// NOTE: prolog do not procuce output
-	UNUSED(out);
+	// (output)
 
-	// scale
-	// NOTE: prolog do not procuce output + no in inverse transform
+	// (scale)
 
-	// save (store output into memory)
-	// NOTE: prolog do not procuce output
+	// (save)
 
-	// update (update registers)
+	// update
 	op4s_sdl_update_s_ref(c, l, r, z);
 
-	// pointers (update pointers to next location)
+	// pointers
 	(*addr) += 2;
 }
 
@@ -1668,31 +2699,30 @@ void op4s_sdl_pass_fwd_core_s_ref(const float *w, const float *v, float *l, floa
 	// shuffle
 	op4s_sdl_shuffle_s_ref(c, r);
 
-	// load (load input from memory)
+	// load
 	op4s_sdl_load_s_ref(in, *addr+4);
 
-	// descale
-	// NOTE: no in forward transform
+	// (descale)
 
-	// input (put input into registers)
+	// input
 	op4s_sdl_input_s_ref(in, c, r);
 
 	// operation
 	op4s_sdl_op_s_ref(z, c, w, l, r);
 
-	// output (get output from registers)
+	// output
 	op4s_sdl_output_s_ref(out, l, z);
 
 	// scale
 	op4s_sdl_scale_s_ref(out, v);
 
-	// save (store output into memory)
+	// save
 	op4s_sdl_save_s_ref(out, *addr-6);
 
-	// update (update registers)
+	// update
 	op4s_sdl_update_s_ref(c, l, r, z);
 
-	// pointers (update pointers to next location)
+	// pointers
 	(*addr) += 2;
 }
 
@@ -1702,105 +2732,421 @@ void op4s_sdl_pass_inv_core_s_ref(const float *w, const float *v, float *l, floa
 	// shuffle
 	op4s_sdl_shuffle_s_ref(c, r);
 
-	// load (load input from memory)
+	// load
 	op4s_sdl_load_s_ref(in, *addr+4);
 
 	// descale
 	op4s_sdl_descale_s_ref(in, v);
 
-	// input (put input into registers)
+	// input
 	op4s_sdl_input_s_ref(in, c, r);
 
 	// operation
 	op4s_sdl_op_s_ref(z, c, w, l, r);
 
-	// output (get output from registers)
+	// output
 	op4s_sdl_output_s_ref(out, l, z);
 
-	// scale
-	// NOTE: no in inverse transform
+	// (scale)
 
-	// save (store output into memory)
+	// save
 	op4s_sdl_save_s_ref(out, *addr-6);
 
-	// update (update registers)
+	// update
 	op4s_sdl_update_s_ref(c, l, r, z);
 
-	// pointers (update pointers to next location)
+	// pointers
 	(*addr) += 2;
 }
 
 static
 void op4s_sdl_pass_fwd_epilog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
+	UNUSED(in);
+
 	// shuffle
 	op4s_sdl_shuffle_s_ref(c, r);
 
-	// load (load input from memory)
-	// NOTE: epilog do not read input
-	UNUSED(in);
+	// (load)
 
-	// descale
-	// NOTE: no in forward transform and epilog do not read input
+	// (descale)
 
-	// input (put input into registers)
-	// NOTE: epilog do not read input
+	// (input)
 
 	// operation
 	op4s_sdl_op_s_ref(z, c, w, l, r);
 
-	// output (get output from registers)
+	// output
 	op4s_sdl_output_s_ref(out, l, z);
 
 	// scale
 	op4s_sdl_scale_s_ref(out, v);
 
-	// save (store output into memory)
+	// save
 	op4s_sdl_save_s_ref(out, *addr-6);
 
-	// update (update registers)
+	// update
 	op4s_sdl_update_s_ref(c, l, r, z);
 
-	// pointers (update pointers to next location)
+	// pointers
 	(*addr) += 2;
 }
 
 static
 void op4s_sdl_pass_inv_epilog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
+	UNUSED(v);
+	UNUSED(in);
+
 	// shuffle
 	op4s_sdl_shuffle_s_ref(c, r);
 
-	// load (load input from memory)
-	// NOTE: epilog do not read input
-	UNUSED(in);
+	// (load)
 
-	// descale
-	// NOTE: epilog do not read input
+	// (descale)
 
-	// input (put input into registers)
-	// NOTE: epilog do not read input
+	// (input)
 
 	// operation
 	op4s_sdl_op_s_ref(z, c, w, l, r);
 
-	// output (get output from registers)
+	// (output)
 	op4s_sdl_output_s_ref(out, l, z);
 
-	// scale
-	// NOTE: no in inverse transform
+	// (scale)
 
-	// save (store output into memory)
+	// save
 	op4s_sdl_save_s_ref(out, *addr-6);
 
-	// update (update registers)
+	// update
 	op4s_sdl_update_s_ref(c, l, r, z);
 
-	// pointers (update pointers to next location)
+	// pointers
 	(*addr) += 2;
 }
 
-// TODO: 2 iterations merged, i.e. loads 4 (2*2) coeffs in every iter.
+// 6 iterations merger, i.e. 12=2*(3*2) coefficient per iteration
+static
+void accel_lift_op4s_main_sdl6_ref_s(
+	float *restrict arr,
+	int steps,
+	float alpha,
+	float beta,
+	float gamma,
+	float delta,
+	float zeta,
+	int scaling)
+{
+	// 6+ coeffs implies 3+ steps
+	assert( steps >= 3 );
+
+	assert( is_aligned_16(arr) );
+
+	const float w[4] = { delta, gamma, beta, alpha };
+	const float v[4] = { 1/zeta, zeta, 1/zeta, zeta };
+	float l[4];
+	float r[4];
+	float z[4];
+	float in[4];
+	float out[4];
+
+	const int S = steps-3;
+	const int U = S / 6;
+	const int M = S % 6;
+	const int T = M >> 1;
+
+	if( scaling < 0 )
+	{
+		// ****** inverse transform ******
+
+		// FIXME(ASVP): support for several workers
+		assert( 1 == dwt_util_get_num_workers() );
+
+		// *** init ***
+
+		float *restrict addr = arr;
+
+		// *** prolog2 ***
+
+		// prolog2: import-preload
+		op4s_sdl6_preload_prolog_s_ref(w, v, l, r, z, in, out, &addr);
+
+		// prolog2: import(3)
+		op4s_sdl6_import_s_ref(l, 3, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl6_pass_inv_prolog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+		// prolog2: import(2)
+		op4s_sdl6_import_s_ref(l, 2, out);
+
+		// prolog2: pass-prolog-light
+		op4s_sdl6_pass_inv_prolog_light_s_ref(w, v, l, r, z, in, out, &addr);
+
+		// prolog2: import(1)
+		op4s_sdl6_import_s_ref(l, 1, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl6_pass_inv_prolog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+		// prolog2: import(0)
+		op4s_sdl6_import_s_ref(l, 0, out);
+
+		// *** core ***
+
+		// core: for u = 0 to U
+		for(int u = 0; u < U; u++)
+		{
+			// NOTE: l, r, z
+
+			// core: pass1-core-light
+			op4s_sdl6_pass_inv_core_light_s_ref(w, v, /*l*/l, /*r*/r, /*z*/z, in, out, &addr);
+
+			// NOTE: z => l, l => r, r => z -- 1st rotation
+
+			// core: pass1-core-full
+			op4s_sdl6_pass_inv_core_full_s_ref(w, v, /*l*/r, /*r*/z, /*z*/l, in, out, &addr);
+
+			// NOTE: (r => z) => l, (z => l) => r, (l => r) => z -- 2nd rotation
+
+			// core: pass2-core-light
+			op4s_sdl6_pass_inv_core_light_s_ref(w, v, /*l*/z, /*r*/l, /*z*/r, in, out, &addr);
+
+			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r) => z -- 3rd rotation, as at the beginning
+
+			// core: pass2-core-full
+			op4s_sdl6_pass_inv_core_full_s_ref(w, v, /*l*/l, /*r*/r, /*z*/z, in, out, &addr);
+
+			// NOTE: z => l, l => r, r => z -- 1st rotation
+
+			// core: pass3-core-light
+			op4s_sdl6_pass_inv_core_light_s_ref(w, v, /*l*/r, /*r*/z, /*z*/l, in, out, &addr);
+
+			// NOTE: (r => z) => l, (z => l) => r, (l => r) => z -- 2nd rotation
+
+			// core: pass3-core-full
+			op4s_sdl6_pass_inv_core_full_s_ref(w, v, /*l*/z, /*r*/l, /*z*/r, in, out, &addr);
+
+			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r) => z -- 3rd rotation, as at the beginning
+		}
+
+		// core: for t = 0 to T do
+		for(int t = 0; t < T; t++)
+		{
+			// core: pass-core-light
+			op4s_sdl6_pass_inv_postcore_light_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// core: pass-core-full
+			op4s_sdl6_pass_inv_postcore_full_s_ref(w, v, l, r, z, in, out, &addr);
+		}
+
+		// core: if odd then
+		if( is_odd(S) )
+		{
+			// core: pass-core-light
+			op4s_sdl6_pass_inv_postcore_light_s_ref(w, v, l, r, z, in, out, &addr);
+		}
+
+		// *** epilog2 ***
+
+		if( is_odd(S) )
+		{
+			// epilog2: export(3)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl6_pass_inv_epilog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl6_pass_inv_epilog_light_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl6_pass_inv_epilog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 0);
+		}
+		else
+		{
+			// epilog2: export(3)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl6_pass_inv_epilog_light_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl6_pass_inv_epilog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-flush
+			op4s_sdl6_pass_inv_epilog_flush_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 0);
+		}
+	}
+	else if ( scaling > 0 )
+	{
+		// ****** forward transform ******
+
+		// FIXME(ASVP): support for several workers
+		assert( 1 == dwt_util_get_num_workers() );
+
+		// *** init ***
+
+		float *restrict addr = arr;
+
+		// *** prolog2 ***
+
+		// prolog2: import-preload
+		op4s_sdl6_preload_prolog_s_ref(w, v, l, r, z, in, out, &addr);
+
+		// prolog2: import(3)
+		op4s_sdl6_import_s_ref(l, 3, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl6_pass_fwd_prolog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+		// prolog2: import(2)
+		op4s_sdl6_import_s_ref(l, 2, out);
+
+		// prolog2: pass-prolog-light
+		op4s_sdl6_pass_fwd_prolog_light_s_ref(w, v, l, r, z, in, out, &addr);
+
+		// prolog2: import(1)
+		op4s_sdl6_import_s_ref(l, 1, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl6_pass_fwd_prolog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+		// prolog2: import(0)
+		op4s_sdl6_import_s_ref(l, 0, out);
+
+		// *** core ***
+
+		// core: for u = 0 to U
+		for(int u = 0; u < U; u++)
+		{
+			// NOTE: l, r, z
+
+			// core: pass1-core-light
+			op4s_sdl6_pass_fwd_core_light_s_ref(w, v, /*l*/l, /*r*/r, /*z*/z, in, out, &addr);
+
+			// NOTE: z => l, l => r, r => z
+
+			// core: pass1-core-full
+			op4s_sdl6_pass_fwd_core_full_s_ref(w, v, /*l*/r, /*r*/z, /*z*/l, in, out, &addr);
+
+			// NOTE: (r => z) => l, (z => l) => r, (l => r) => z
+
+			// core: pass2-core-light
+			op4s_sdl6_pass_fwd_core_light_s_ref(w, v, /*l*/z, /*r*/l, /*z*/r, in, out, &addr);
+
+			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r)
+
+			// core: pass2-core-full
+			op4s_sdl6_pass_fwd_core_full_s_ref(w, v, /*l*/l, /*r*/r, /*z*/z, in, out, &addr);
+
+			// NOTE: z => l, l => r, r => z
+
+			// core: pass3-core-light
+			op4s_sdl6_pass_fwd_core_light_s_ref(w, v, /*l*/r, /*r*/z, /*z*/l, in, out, &addr);
+
+			// NOTE: (r => z) => l, (z => l) => r, (l => r) => z
+
+			// core: pass3-core-full
+			op4s_sdl6_pass_fwd_core_full_s_ref(w, v, /*l*/z, /*r*/l, /*z*/r, in, out, &addr);
+
+			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r) => z
+		}
+
+		// core: for t = 0 to T do
+		for(int t = 0; t < T; t++)
+		{
+			// core: pass-core-light
+			op4s_sdl6_pass_fwd_postcore_light_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// core: pass-core-full
+			op4s_sdl6_pass_fwd_postcore_full_s_ref(w, v, l, r, z, in, out, &addr);
+		}
+
+		// core: if odd then
+		if( is_odd(S) )
+		{
+			// core: pass-core-light
+			op4s_sdl6_pass_fwd_postcore_light_s_ref(w, v, l, r, z, in, out, &addr);
+		}
+
+		// *** epilog2 ***
+
+		if( is_odd(S) )
+		{
+			// epilog2: export(3)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl6_pass_fwd_epilog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl6_pass_fwd_epilog_light_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl6_pass_fwd_epilog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 0);
+		}
+		else
+		{
+			// epilog2: export(3)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl6_pass_fwd_epilog_light_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl6_pass_fwd_epilog_full_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-flush
+			op4s_sdl6_pass_fwd_epilog_flush_s_ref(w, v, l, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl6_export_s_ref(l, &arr[2*steps], 0);
+		}
+	}
+	else
+	{
+		// ****** transform w/o scaling ******
+
+		// not implemented yet
+		dwt_util_abort();
+	}
+}
+
+// 2 iterations merged, i.e. loads 4 (2*2) coeffs in every iter.
 static
 void accel_lift_op4s_main_sdl2_ref_s(
 	float *restrict arr,
@@ -1812,7 +3158,242 @@ void accel_lift_op4s_main_sdl2_ref_s(
 	float zeta,
 	int scaling)
 {
+	// 6+ coeffs implies 3+ steps
+	assert( steps >= 3 );
 
+	assert( is_aligned_16(arr) );
+
+	const float w[4] = { delta, gamma, beta, alpha };
+	const float v[4] = { 1/zeta, zeta, 1/zeta, zeta };
+	float l[4];
+	float c[4];
+	float r[4];
+	float z[4];
+	float in[4];
+	float out[4];
+
+	const int S = steps-3;
+	const int T = S >> 1;
+
+	if( scaling < 0 )
+	{
+		// ****** inverse transform ******
+
+		// FIXME(ASVP): support for several workers
+		assert( 1 == dwt_util_get_num_workers() );
+
+		// *** init ***
+
+		float *restrict addr = arr;
+
+		// *** prolog2 ***
+
+		// prolog2: import-preload
+		op4s_sdl2_preload_inv_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(3)
+		op4s_sdl2_import_s_ref(l, 3, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl2_pass_inv_prolog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(2)
+		op4s_sdl2_import_s_ref(l, 2, out);
+
+		// prolog2: pass-prolog-light
+		op4s_sdl2_pass_inv_prolog_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(1)
+		op4s_sdl2_import_s_ref(l, 1, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl2_pass_inv_prolog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(0)
+		op4s_sdl2_import_s_ref(l, 0, out);
+
+		// *** core ***
+
+		// core: for t = 0 to T do
+		for(int t = 0; t < T; t++)
+		{
+			// core: pass-core-light
+			op4s_sdl2_pass_inv_core_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// core: pass-core-full
+			op4s_sdl2_pass_inv_core_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+		}
+
+		// core: if odd then
+		if( is_odd(S) )
+		{
+			// core: pass-core-light
+			op4s_sdl2_pass_inv_core_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+		}
+
+		// *** epilog2 ***
+
+		if( is_odd(S) )
+		{
+			// epilog2: export(3)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_inv_epilog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl2_pass_inv_epilog_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_inv_epilog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 0);
+		}
+		else
+		{
+			// epilog2: export(3)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl2_pass_inv_epilog_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_inv_epilog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-flush
+			op4s_sdl2_pass_inv_epilog_flush_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 0);
+		}
+	}
+	else if ( scaling > 0 )
+	{
+		// ****** forward transform ******
+
+		// FIXME(ASVP): support for several workers
+		assert( 1 == dwt_util_get_num_workers() );
+
+		// *** init ***
+
+		float *restrict addr = arr;
+
+		// *** prolog2 ***
+
+		// prolog2: import-preload
+		op4s_sdl2_preload_fwd_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(3)
+		op4s_sdl2_import_s_ref(l, 3, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl2_pass_fwd_prolog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+		const int S = steps-3;
+		const int T = S >> 1;
+
+		// prolog2: import(2)
+		op4s_sdl2_import_s_ref(l, 2, out);
+
+		// prolog2: pass-prolog-light
+		op4s_sdl2_pass_fwd_prolog_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(1)
+		op4s_sdl2_import_s_ref(l, 1, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl2_pass_fwd_prolog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(0)
+		op4s_sdl2_import_s_ref(l, 0, out);
+
+		// *** core ***
+
+		// core: for t = 0 to T do
+		for(int t = 0; t < T; t++)
+		{
+			// core: pass-core-light
+			op4s_sdl2_pass_fwd_core_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// core: pass-core-full
+			op4s_sdl2_pass_fwd_core_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+		}
+
+		// core: if odd then
+		if( is_odd(S) )
+		{
+			// core: pass-core-light
+			op4s_sdl2_pass_fwd_core_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+		}
+
+		// *** epilog2 ***
+
+		if( is_odd(S) )
+		{
+			// epilog2: export(3)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_fwd_epilog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl2_pass_fwd_epilog_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_fwd_epilog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 0);
+		}
+		else
+		{
+			// epilog2: export(3)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl2_pass_fwd_epilog_light_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_fwd_epilog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-flush
+			op4s_sdl2_pass_fwd_epilog_flush_s_ref(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl2_export_s_ref(l, &arr[2*steps], 0);
+		}
+	}
+	else
+	{
+		// ****** transform w/o scaling ******
+
+		// not implemented yet
+		dwt_util_abort();
+	}
 }
 
 static
@@ -1840,150 +3421,151 @@ void accel_lift_op4s_main_sdl_ref_s(
 	float in[4];
 	float out[4];
 
+	const int S = steps-3;
+
 	if( scaling < 0 )
 	{
-		// inverse transform
+		// ****** inverse transform ******
 
-		// FIXME(ASVP)
+		// FIXME(ASVP): support for several workers
 		assert( 1 == dwt_util_get_num_workers() );
 
-		// NOTE: *** init ***
+		// *** init ***
 
 		// this pointer is needed because of use of arr[] in import and export functions
 		float *restrict addr = arr;
 
-		// NOTE: *** prolog2 ***
+		// *** prolog2 ***
 
-		// NOTE: prolog2: import(3)
+		// prolog2: import(3)
 		op4s_sdl_import_s_ref(l, arr, 3);
 
-		// NOTE: prolog2: pass-prolog
+		// prolog2: pass-prolog
 		op4s_sdl_pass_inv_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
 	
-		// NOTE: prolog2: import(2)
+		// prolog2: import(2)
 		op4s_sdl_import_s_ref(l, arr, 2);
 
-		// NOTE: prolog2: pass-prolog
+		// prolog2: pass-prolog
 		op4s_sdl_pass_inv_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: prolog2: import(1)
+		// prolog2: import(1)
 		op4s_sdl_import_s_ref(l, arr, 1);
 
-		// NOTE: prolog2: pass-prolog
+		// prolog2: pass-prolog
 		op4s_sdl_pass_inv_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: prolog2: import(0)
+		// prolog2: import(0)
 		op4s_sdl_import_s_ref(l, arr, 0);
 
-		// NOTE: *** core ***
+		// *** core ***
 
-		// NOTE: core: for s = 0 to S-3 do
-		for(int s = 0; s < steps-3; s++)
+		// core: for s = 0 to S do
+		for(int s = 0; s < S; s++)
 		{
-			// NOTE: core: pass-core
+			// core: pass-core
 			op4s_sdl_pass_inv_core_s_ref(w, v, l, c, r, z, in, out, &addr);
 
 		}
 
-		// NOTE: *** epilog2 ***
+		// *** epilog2 ***
 
-		// NOTE: epilog2: export(3)
+		// epilog2: export(3)
 		op4s_sdl_export_s_ref(l, &arr[2*steps], 3);
 
-		// NOTE: epilog2: pass-epilog
+		// epilog2: pass-epilog
 		op4s_sdl_pass_inv_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: epilog2: export(2)
+		// epilog2: export(2)
 		op4s_sdl_export_s_ref(l, &arr[2*steps], 2);
 
-		// NOTE: epilog2: pass-epilog
+		// epilog2: pass-epilog
 		op4s_sdl_pass_inv_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: epilog2: export(1)
+		// epilog2: export(1)
 		op4s_sdl_export_s_ref(l, &arr[2*steps], 1);
 
-		// NOTE: epilog2: pass-epilog
+		// epilog2: pass-epilog
 		op4s_sdl_pass_inv_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: epilog2: export(0)
+		// epilog2: export(0)
 		op4s_sdl_export_s_ref(l, &arr[2*steps], 0);
 	}
 	else if ( scaling > 0 )
 	{
-		// forward transform
+		// ****** forward transform ******
 
-		// FIXME(ASVP)
+		// FIXME(ASVP): support for several workers
 		assert( 1 == dwt_util_get_num_workers() );
 
-		// NOTE: *** init ***
+		// *** init ***
 
 		// this pointer is needed because of use of arr[] in import and export functions
 		float *restrict addr = arr;
 
-		// NOTE: *** prolog2 ***
+		// *** prolog2 ***
 
-		// NOTE: prolog2: import(3)
+		// prolog2: import(3)
 		op4s_sdl_import_s_ref(l, arr, 3);
 
-		// NOTE: prolog2: pass-prolog
+		// prolog2: pass-prolog
 		op4s_sdl_pass_fwd_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
 	
-		// NOTE: prolog2: import(2)
+		// prolog2: import(2)
 		op4s_sdl_import_s_ref(l, arr, 2);
 
-		// NOTE: prolog2: pass-prolog
+		// prolog2: pass-prolog
 		op4s_sdl_pass_fwd_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: prolog2: import(1)
+		// prolog2: import(1)
 		op4s_sdl_import_s_ref(l, arr, 1);
 
-		// NOTE: prolog2: pass-prolog
+		// prolog2: pass-prolog
 		op4s_sdl_pass_fwd_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: prolog2: import(0)
+		// prolog2: import(0)
 		op4s_sdl_import_s_ref(l, arr, 0);
 
-		// NOTE: *** core ***
+		// *** core ***
 
-		// NOTE: core: for s = 0 to S-3 do
-		for(int s = 0; s < steps-3; s++)
+		// core: for s = 0 to S-3 do
+		for(int s = 0; s < S; s++)
 		{
 			// NOTE: core: pass-core
 			op4s_sdl_pass_fwd_core_s_ref(w, v, l, c, r, z, in, out, &addr);
 
 		}
 
-		// NOTE: *** epilog2 ***
+		// *** epilog2 ***
 
-		// NOTE: epilog2: export(3)
+		// epilog2: export(3)
 		op4s_sdl_export_s_ref(l, &arr[2*steps], 3);
 
-		// NOTE: epilog2: pass-epilog
+		// epilog2: pass-epilog
 		op4s_sdl_pass_fwd_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: epilog2: export(2)
+		// epilog2: export(2)
 		op4s_sdl_export_s_ref(l, &arr[2*steps], 2);
 
-		// NOTE: epilog2: pass-epilog
+		// epilog2: pass-epilog
 		op4s_sdl_pass_fwd_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: epilog2: export(1)
+		// epilog2: export(1)
 		op4s_sdl_export_s_ref(l, &arr[2*steps], 1);
 
-		// NOTE: epilog2: pass-epilog
+		// epilog2: pass-epilog
 		op4s_sdl_pass_fwd_epilog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
-		// NOTE: epilog2: export(0)
+		// epilog2: export(0)
 		op4s_sdl_export_s_ref(l, &arr[2*steps], 0);
 	}
 	else
 	{
-		// transform w/o scaling
+		// ****** transform w/o scaling ******
 
 		// not implemented yet
 		dwt_util_abort();
 	}
-
 }
 
 /**
@@ -2664,6 +4246,7 @@ void accel_lift_op4s_s(
 		else if(5 == get_accel_type())
 		{
 			const int steps = (to_even(len-off)-4)/2;
+
 			if( steps < 3 )
 				accel_lift_op4s_main_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
 			else
@@ -2671,8 +4254,21 @@ void accel_lift_op4s_s(
 		}
 		else if(6 == get_accel_type())
 		{
-			// TODO: SIMD (SSE + 2*3=6 unpacked loops, i.e. 12 (2*2*3) coeffs in one iteration)
-			dwt_util_abort();
+			const int steps = (to_even(len-off)-4)/2;
+
+			if( steps < 3 )
+				accel_lift_op4s_main_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
+			else
+				accel_lift_op4s_main_sdl2_ref_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
+		}
+		else if(7 == get_accel_type())
+		{
+			const int steps = (to_even(len-off)-4)/2;
+
+			if( steps < 3 )
+				accel_lift_op4s_main_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
+			else
+				accel_lift_op4s_main_sdl6_ref_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
 		}
 		else
 			dwt_util_abort(); // unsupported value
@@ -4711,6 +6307,8 @@ int dwt_util_save_to_pgm_s(
 
 	fprintf(file, "P2\n%i %i\n%i\n", size_i_big_x, size_i_big_y, target_max_value);
 
+	int err = 0;
+
 	for(int y = 0; y < size_i_big_y; y++)
 	{
 		for(int x = 0; x < size_i_big_x; x++)
@@ -4719,9 +6317,10 @@ int dwt_util_save_to_pgm_s(
 
 			int val = (target_max_value*px/max_value);
 
-			if( px - 10*FLT_EPSILON > max_value )
+			if( px - 1e-3f > max_value )
 			{
-				dwt_util_log(LOG_WARN, "%s: maximum pixel intensity exceeded (%f > %f).\n", __FUNCTION__, px, max_value);
+				if( !err++)
+					dwt_util_log(LOG_WARN, "%s: Maximum pixel intensity exceeded (%f > %f). Such an incident will be reported only once.\n", __FUNCTION__, px, max_value);
 			}
 
 			if( px > max_value )
@@ -4729,9 +6328,10 @@ int dwt_util_save_to_pgm_s(
 				val = target_max_value;
 			}
 
-			if( px + 10*FLT_EPSILON < 0.0f )
+			if( px + 1e-3f < 0.0f )
 			{
-				dwt_util_log(LOG_WARN, "%s: minimum pixel intensity exceeded (%f < %f).\n", __FUNCTION__, px, 0.0f);
+				if( !err++ )
+					dwt_util_log(LOG_WARN, "%s: Minimum pixel intensity exceeded (%f < %f). Such an incident will be reported only once.\n", __FUNCTION__, px, 0.0f);
 			}
 
 			if( px < 0.0f )
@@ -4749,6 +6349,9 @@ int dwt_util_save_to_pgm_s(
 	}
 
 	fclose(file);
+
+	if( err )
+		dwt_util_log(LOG_WARN, "%s: %i errors ocurred while saving a file.\n", __FUNCTION__, err);
 
 	return 0;
 }
@@ -5210,7 +6813,7 @@ int dwt_util_get_opt_stride(int min_stride)
 	return get_opt_stride(min_stride);
 }
 
-void dwt_util_subband_s(
+void dwt_util_subband(
 	void *ptr,
 	int stride_x,
 	int stride_y,
@@ -5224,6 +6827,8 @@ void dwt_util_subband_s(
 	int *dst_size_x,
 	int *dst_size_y)
 {
+	assert( ptr != NULL && size_i_big_x >= 0 && size_i_big_y >= 0 && size_o_big_x >= 0 && size_o_big_y >= 0 );
+
 	int inner_H_x = 0;
 	int inner_H_y = 0;
 	int inner_L_x = size_i_big_x;
@@ -5244,32 +6849,90 @@ void dwt_util_subband_s(
 	switch(band)
 	{
 		case DWT_LL:
-			*dst_ptr = addr2_s(ptr,
+			*dst_ptr = addr2(ptr,
 				0, 0,
 				stride_x, stride_y);
 			*dst_size_x = inner_L_x;
 			*dst_size_y = inner_L_y;
 			break;
 		case DWT_HL:
-			*dst_ptr = addr2_s(ptr,
+			*dst_ptr = addr2(ptr,
 				0, outer_x,
 				stride_x, stride_y);
 			*dst_size_x = inner_H_x;
 			*dst_size_y = inner_L_y;
 			break;
 		case DWT_LH:
-			*dst_ptr = addr2_s(ptr,
+			*dst_ptr = addr2(ptr,
 				outer_y, 0,
 				stride_x, stride_y);
 			*dst_size_x = inner_L_x;
 			*dst_size_y = inner_H_y;
 			break;
 		case DWT_HH:
-			*dst_ptr = addr2_s(ptr,
+			*dst_ptr = addr2(ptr,
 				outer_y, outer_x,
 				stride_x, stride_y);
 			*dst_size_x = inner_H_x;
 			*dst_size_y = inner_H_y;
 			break;
 	}
+}
+
+void dwt_util_subband_s(
+	void *ptr,
+	int stride_x,
+	int stride_y,
+	int size_o_big_x,
+	int size_o_big_y,
+	int size_i_big_x,
+	int size_i_big_y,
+	int j_max,
+	enum subbands band,
+	void **dst_ptr,
+	int *dst_size_x,
+	int *dst_size_y)
+{
+	dwt_util_subband(
+		ptr,
+		stride_x,
+		stride_y,
+		size_o_big_x,
+		size_o_big_y,
+		size_i_big_x,
+		size_i_big_y,
+		j_max,
+		band,
+		dst_ptr,
+		dst_size_x,
+		dst_size_y);
+}
+
+void dwt_util_subband_d(
+	void *ptr,
+	int stride_x,
+	int stride_y,
+	int size_o_big_x,
+	int size_o_big_y,
+	int size_i_big_x,
+	int size_i_big_y,
+	int j_max,
+	enum subbands band,
+	void **dst_ptr,
+	int *dst_size_x,
+	int *dst_size_y)
+{
+	dwt_util_subband(
+		ptr,
+		stride_x,
+		stride_y,
+		size_o_big_x,
+		size_o_big_y,
+		size_i_big_x,
+		size_i_big_y,
+		j_max,
+		band,
+		dst_ptr,
+		dst_size_x,
+		dst_size_y);
 }

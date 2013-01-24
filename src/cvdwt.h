@@ -9,8 +9,6 @@
 #include <cv.h> // cv::
 #include <string> // std::string
 
-#include "libdwt.h"
-
 /**
  * @defgroup cpp_cvdwt C++ OpenCV interface
  * @{
@@ -150,6 +148,41 @@ void createTestImage(
 	cv::Mat &img,				///< place test image here
 	const cv::Size &size,			///< matrix size specification
 	int type				///< matrix element type, e.g. CV_64FC3
+);
+
+/**
+ * @brief List of subbands for @ref dwt:subband function.
+ */
+enum {
+	/**
+	 * Subband filtered by LP filter horizontally and vertically.
+	 */
+	DWT_LL = 1,
+
+	/**
+	 * Subband filtered by HP horizontally and LP vertically.
+	 */
+	DWT_HL,
+
+	/**
+	 * Subband filtered by HP vertically and LP horizontally.
+	 */
+	DWT_LH,
+
+	/**
+	 * Subband filtered by HP filter horizontally and vertically.
+	 */
+	DWT_HH
+};
+
+/**
+ * @brief Get access to a subband of the transform.
+ */
+cv::Mat subband(
+	const cv::Mat &src,		///< a transform at least with @e j levels of decomposition
+	const cv::Size size,		///< size of inner image (inside of input image) which was transformed
+	int j = 0,			///< level of decomposition for which you want to obtain a subband
+	int band = dwt::DWT_LL		///< which subband (LL, HL, LH or HH)
 );
 
 }

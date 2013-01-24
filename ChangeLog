@@ -1,3 +1,10 @@
+2013-01-24 David Barina <ibarina@fit.vutbr.cz>
+* Added merged implementations (2 and 6 merged iterations) of the shifted
+double-loop algorithm.
+* Added subband addressing functions into OpenCV interface.
+* Added an example showing usage of new OpenCV subband addressing functions.
+* Added a function which can convert the transform into a viewable image.
+
 2013-01-22 David Barina <ibarina@fit.vutbr.cz>
 * Added subband addressing function.
 

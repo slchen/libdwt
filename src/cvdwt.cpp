@@ -5,6 +5,8 @@
  */
 #include "cvdwt.h"
 
+#include "libdwt.h"
+
 #include <highgui.h> // imshow
 
 using namespace cv;
@@ -240,4 +242,57 @@ void dwt::createTestImage(
 			img,
 			c,
 			img.size());
+}
+
+enum subbands conv_band(int band)
+{
+	enum subbands conv[dwt::DWT_HH+1];
+
+	conv[dwt::DWT_LL] = ::DWT_LL;
+	conv[dwt::DWT_HL] = ::DWT_HL;
+	conv[dwt::DWT_LH] = ::DWT_LH;
+	conv[dwt::DWT_HH] = ::DWT_HH;
+
+	return conv[band];
+}
+
+Mat dwt::subband(
+	const Mat &src,
+	const Size size,
+	int j,
+	int band)
+{
+	CV_Assert( band >= dwt::DWT_LL && band <= dwt::DWT_HH );
+
+	void *ptr = src.data;
+	const int stride_x = src.step;
+	const int stride_y = src.elemSize();
+	const int inner_x = size.width;
+	const int inner_y = size.height;
+	const int outer_x = src.cols;
+	const int outer_y = src.rows;
+	
+	void *subband_ptr;
+	int subband_size_x;
+	int subband_size_y;
+
+	dwt_util_subband(
+		ptr,
+		stride_x,
+		stride_y,
+		outer_x,
+		outer_y,
+		inner_x,
+		inner_y,
+		j,
+		conv_band(band),
+		&subband_ptr,
+		&subband_size_x,
+		&subband_size_y);
+	
+	const int sizes[] = {subband_size_y, subband_size_x};
+	const size_t steps[] = {stride_x};
+	void *data = subband_ptr;
+
+	return Mat(/*dims*/2, /*sizes*/sizes, /*type*/src.type(), /*data*/data, /*steps*/steps);
 }

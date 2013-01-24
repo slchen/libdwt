@@ -28,7 +28,7 @@ int main()
 	dwt_util_log(LOG_INFO, "Using stride of %i bytes.\n", stride_x);
 
 	// image data
-	void *data1, *data2;
+	void *data1, *data2, *data3;
 
 	// full decomposition
 	int j = -1;
@@ -40,6 +40,8 @@ int main()
 	dwt_util_test_image_fill_s(data1, stride_x, stride_y, x, y, 0);
 	dwt_util_alloc_image(&data2, stride_x, stride_y, x, y);
 	dwt_util_test_image_fill_s(data2, stride_x, stride_y, x, y, 0);
+
+	dwt_util_alloc_image(&data3, stride_x, stride_y, x, y);
 
 	// init timer
 	dwt_clock_t time_start;
@@ -57,6 +59,9 @@ int main()
 	// stop timer
 	time_stop = dwt_util_get_clock(type);
 	dwt_util_log(LOG_INFO, "elapsed time: %f secs\n", (double)(time_stop - time_start) / dwt_util_get_frequency(type));
+
+	dwt_util_conv_show_s(data1, data3, stride_x, stride_y, x, y);
+	dwt_util_save_to_pgm_s("transform.pgm", 1.0, data3, stride_x, stride_y, x, y);
 
 	dwt_util_log(LOG_INFO, "inverse transform...\n");
 
