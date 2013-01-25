@@ -60,9 +60,9 @@ int main()
 	time_stop = dwt_util_get_clock(type);
 	dwt_util_log(LOG_INFO, "elapsed time: %f secs\n", (double)(time_stop - time_start) / dwt_util_get_frequency(type));
 
+	// convert transform into viewable format
 	dwt_util_conv_show_s(data1, data3, stride_x, stride_y, x, y);
-	dwt_util_save_to_pgm_s("transform.pgm", 1.0, data3, stride_x, stride_y, x, y);
-
+	
 	dwt_util_log(LOG_INFO, "inverse transform...\n");
 
 	// start timer
@@ -88,6 +88,7 @@ int main()
 	dwt_util_log(LOG_INFO, "saving...\n");
 	dwt_util_save_to_pgm_s("data1.pgm", 1.0, data1, stride_x, stride_y, x, y);
 	dwt_util_save_to_pgm_s("data2.pgm", 1.0, data2, stride_x, stride_y, x, y);
+	dwt_util_save_to_pgm_s("data3.pgm", 1.0, data3, stride_x, stride_y, x, y);
 
 	// free allocated memory
 	dwt_util_free_image(&data1);

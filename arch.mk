@@ -23,6 +23,15 @@ ifeq ($(ARCH),x86_64)
 	LDLIBS += -lrt
 endif
 
+# x86_64 without MMX and SSE
+ifeq ($(ARCH),x86_64+nosse)
+	CROSS_COMPILE = 
+	CFLAGS += -fopenmp -fPIC
+	CFLAGS += -mno-sse
+	LDFLAGS += -fopenmp
+	LDLIBS += -lrt
+endif
+
 ifeq ($(ARCH),armv6l)
 	CROSS_COMPILE = 
 	CFLAGS += -fopenmp -fPIC

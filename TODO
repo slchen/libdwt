@@ -1,5 +1,5 @@
 * unit tests
-* SIMD support
+* better SIMD support
 * more wavelets (Haar)
 * more data types (integer, fixed point)
 * integrate performance measurement
@@ -13,7 +13,6 @@
 * remove duplicate code
 * tiling (e.g., as in JPEG 2000)
 * remove "lib" prefix pro source file names
-* group lifting steps into one for-loop (suitable for SIMD implementation and UTIA ASVP platform)
 * 2D DWT: single-loop approach (iteration of horizontal part is immediately fed into iteration of vertical part)
 * memory access through incremented pointers instead of indexed arrays
 * use size_t, ssize_t, etc. instead of unsigned int, int, ...
@@ -21,6 +20,5 @@
 * ARM support
 * ASVP: upload new data when waiting for preceding operation (use memory bank "D", then copy to bank "A")
 * ASVP: number of workers should be adjustable by environment variable like number of threads in OpenMP
-* ASVP: compile never cross compiler (GCC for microblaze)
 * MS Windows support
 * code cleanup

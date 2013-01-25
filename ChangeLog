@@ -1,3 +1,6 @@
+2013-01-25 David Barina <ibarina@fit.vutbr.cz>
+* Added SSE implementation of the shifted double-loop algorithm.
+
 2013-01-24 David Barina <ibarina@fit.vutbr.cz>
 * Added merged implementations (2 and 6 merged iterations) of the shifted
 double-loop algorithm.

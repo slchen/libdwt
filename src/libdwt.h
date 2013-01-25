@@ -836,7 +836,7 @@ void dwt_util_set_num_workers(
  *   @li 5 for CPU shifted double-loop SIMD algorithm (reference implementation),
  *   @li 6 for CPU shifted double-loop SIMD algorithm (2 iterations merged),
  *   @li 7 for CPU shifted double-loop SIMD algorithm (6 iterations merged),
- *   @li 8 for CPU shifted double-loop SIMD algorithm (2 iterations merged, SSE implementation, x86 platform, not implemented yet),
+ *   @li 8 for CPU shifted double-loop SIMD algorithm (2 iterations merged, SSE implementation, x86 platform),
  *   @li 9 for CPU shifted double-loop SIMD algorithm (6 iterations merged, SSE implementation, x86 platform, not implemented yet).
  *
  * @warning highly experimental

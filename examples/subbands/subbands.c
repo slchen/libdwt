@@ -1,7 +1,7 @@
 /**
  * @file
  * @author David Barina <ibarina@fit.vutbr.cz>
- * @brief Simple example application showing usage of libdwt functions.
+ * @brief Example application showing usage of subband access functions.
  */
 
 #include "libdwt.h"

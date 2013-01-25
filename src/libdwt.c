@@ -354,6 +354,13 @@ int is_valid_data_step_s(const float *data_step)
 /** other headers */
 #include <assert.h> // assert
 #include <stddef.h> // NULL, size_t
+
+#ifndef __SSE__
+	 // HACK: stdlib.h:280:1: error: SSE register return with SSE disabled
+	#warning INFO: Using ugly non-SSE workaround
+	#undef __USE_EXTERN_INLINES
+#endif
+
 #include <stdlib.h> // abort, malloc, free
 #include <limits.h> // CHAR_BIT
 // NOTE: -lm
@@ -362,10 +369,16 @@ int is_valid_data_step_s(const float *data_step)
 #include <string.h> // memcpy
 #include <stdarg.h> // va_start, va_end
 #include <malloc.h> // memalign
-#include <float.h> // FLT_EPSILON
+
+/** SSE intrinsics */
+#ifdef __SSE__
+	#warning INFO: Using SSE
+	#include <xmmintrin.h>
+#endif
 
 /** OpenMP header when used */
 #ifdef _OPENMP
+	#warning INFO: Using OpenMP
 	#include <omp.h>
 #endif
 
@@ -913,6 +926,17 @@ float *addr2_s(
 	return (float *)((char *)ptr+y*stride_x+x*stride_y);
 }
 
+static
+const float *addr2_const_s(
+	const void *ptr,
+	int y,
+	int x,
+	int stride_x,
+	int stride_y)
+{
+	return (const float *)((const char *)ptr+y*stride_x+x*stride_y);
+}
+
 float *dwt_util_addr_coeff_s(
 	void *ptr,
 	int y,
@@ -1031,26 +1055,56 @@ void *dwt_util_memcpy_stride_d(
  * @brief Pixel value of test image.
  */
 static
-double dwt_util_test_image_value_d(
+void dwt_util_test_image_value_i_d(
+	double *dest,
 	int x,
 	int y,
-	int rand)
+	int rand,
+	int type)
 {
-	x >>= rand;
-	return 2*x*y / (double)(x*x + y*y + 1);
+	switch(type)
+	{
+		case 0:
+			x >>= rand;
+			*dest = 2*x*y / (double)(x*x + y*y + 1);
+			break;
+#ifdef __SSE__
+		case 1:
+			x >>= rand;
+			*dest = 2*x*y / (double)(x*x + y*y + 1) * fabs(sin(x/10.)) * fabs(cos(y*x/5.));
+			break;
+#endif
+		default:
+			dwt_util_abort();
+	}
 }
 
 /**
  * @brief Pixel value of test image.
  */
 static
-float dwt_util_test_image_value_s(
+void dwt_util_test_image_value_i_s(
+	float *dest,
 	int x,
 	int y,
-	int rand)
+	int rand,
+	int type)
 {
-	x >>= rand;
-	return 2*x*y / (float)(x*x + y*y + 1);
+	switch(type)
+	{
+		case 0:
+			x >>= rand;
+			*dest = 2*x*y / (float)(x*x + y*y + 1);
+			break;
+#ifdef __SSE__
+		case 1:
+			x >>= rand;
+			*dest = 2*x*y / (float)(x*x + y*y + 1) * fabsf(sinf(x/10.f)) * fabsf(cosf(y*x/5.f));
+			break;
+#endif
+		default:
+			dwt_util_abort();
+	}
 }
 
 void dwt_util_test_image_fill_d(
@@ -1065,7 +1119,13 @@ void dwt_util_test_image_fill_d(
 
 	for(int y = 0; y < size_i_big_y; y++)
 		for(int x = 0; x < size_i_big_x; x++)
-			*addr2_d(ptr, y, x, stride_x, stride_y) = dwt_util_test_image_value_d(x, y, rand);
+			dwt_util_test_image_value_i_d(
+				addr2_d(ptr, y, x, stride_x, stride_y),
+				x,
+				y,
+				rand,
+				0
+			);
 }
 
 void dwt_util_test_image_fill_s(
@@ -1080,7 +1140,13 @@ void dwt_util_test_image_fill_s(
 
 	for(int y = 0; y < size_i_big_y; y++)
 		for(int x = 0; x < size_i_big_x; x++)
-			*addr2_s(ptr, y, x, stride_x, stride_y) = dwt_util_test_image_value_s(x, y, rand);
+			dwt_util_test_image_value_i_s(
+				addr2_s(ptr, y, x, stride_x, stride_y),
+				x,
+				y,
+				rand,
+				0
+			);
 }
 
 void dwt_util_test_image_zero_s(
@@ -1149,35 +1215,6 @@ int dwt_util_compare_d(
 		}
 
 	return 0;
-}
-
-void dwt_util_conv_show_s(
-	const void *src,
-	void *dst,
-	int stride_x,
-	int stride_y,
-	int size_i_big_x,
-	int size_i_big_y)
-{
-	assert( src != NULL && dst != NULL && size_i_big_x >= 0 && size_i_big_y >= 0 );
-
-	const float a = 100.f;
-	const float b = 10.f;
-
-	for(int y = 0; y < size_i_big_y; y++)
-	{
-		for(int x = 0; x < size_i_big_x; x++)
-		{
-			const float coeff = *addr2_s(src, y, x, stride_x, stride_y);
-			float *log_coeff = addr2_s(dst, y, x, stride_x, stride_y);
-
-#ifdef microblaze
-			*log_coeff = log(1.f+fabsf(coeff)*a)/b;
-#else
-			*log_coeff = logf(1.f+fabsf(coeff)*a)/b;
-#endif
-		}
-	}
 }
 
 int dwt_util_compare_s(
@@ -1583,11 +1620,27 @@ void op4s_sdl2_import_preload_s_ref(float *out, const float *restrict addr)
 	out[3] = addr[3];
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_import_preload_s_sse(out, addr) \
+do { \
+	(out) = _mm_load_ps(addr); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_import_s_ref(float *l, int idx, const float *out)
 {
 	l[idx] = out[idx];
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_import_s_sse(l, idx, out) \
+do { \
+	(out) = _mm_shuffle_ps((out), (out), _MM_SHUFFLE(2,1,0,3)); \
+	(l) = _mm_move_ss((l), (out)); \
+	(l) = _mm_shuffle_ps((l), (l), _MM_SHUFFLE((3==idx)?0:3,(2==idx)?0:2,(1==idx)?0:1,(0==idx)?0:0)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_import_s_ref(float *l, int idx, const float *out)
@@ -1604,6 +1657,13 @@ void op4s_sdl2_load_s_ref(float *in, const float *addr)
 	in[3] = addr[3];
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_load_s_sse(in, addr) \
+do { \
+	(in) = _mm_load_ps((const float *)(addr)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_shuffle_s_ref(float *c, float *r)
 {
@@ -1611,12 +1671,32 @@ void op4s_sdl2_shuffle_s_ref(float *c, float *r)
 	r[0]=r[1]; r[1]=r[2]; r[2]=r[3];
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_shuffle_s_sse(c, r) \
+do { \
+	(c) = _mm_shuffle_ps((c), (c), _MM_SHUFFLE(0,3,2,1)); \
+	(r) = _mm_shuffle_ps((r), (r), _MM_SHUFFLE(0,3,2,1)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_input_low_s_ref(const float *in, float *c, float *r)
 {
 	c[3] = in[0];
 	r[3] = in[1];
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_input_low_s_sse(in, c, r) \
+do { \
+	__m128 t; \
+	(t) = (c); \
+	(t) = _mm_shuffle_ps((t), (in), _MM_SHUFFLE(1,0,3,2)); \
+	(c) = _mm_shuffle_ps((c), (t),  _MM_SHUFFLE(2,0,1,0)); \
+	(t) = _mm_shuffle_ps((t), (r),  _MM_SHUFFLE(3,2,3,2)); \
+	(r) = _mm_shuffle_ps((r), (t),  _MM_SHUFFLE(1,2,1,0)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl2_input_high_s_ref(const float *in, float *c, float *r)
@@ -1632,12 +1712,34 @@ void op4s_sdl2_shuffle_input_low_s_ref(const float *in, float *c, float *r)
 	op4s_sdl2_input_low_s_ref(in, c, r);
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_shuffle_input_low_s_sse(in, c, r) \
+do { \
+	__m128 t; \
+	(t) = (in); \
+	(t) = _mm_shuffle_ps((t), (c), _MM_SHUFFLE(3,2,1,0)); \
+	(c) = _mm_shuffle_ps((c), (t), _MM_SHUFFLE(0,3,2,1)); \
+	(t) = _mm_shuffle_ps((t), (r), _MM_SHUFFLE(3,2,1,0)); \
+	(r) = _mm_shuffle_ps((r), (t), _MM_SHUFFLE(1,3,2,1)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_shuffle_input_high_s_ref(const float *in, float *c, float *r)
 {
 	op4s_sdl2_shuffle_s_ref(c, r);
 	op4s_sdl2_input_high_s_ref(in, c, r);
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_shuffle_input_high_s_sse(in, c, r) \
+do { \
+	(in) = _mm_shuffle_ps( (in), (c), _MM_SHUFFLE(3,2,3,2) ); \
+	(c)  = _mm_shuffle_ps( (c), (in), _MM_SHUFFLE(0,3,2,1) ); \
+	(in) = _mm_shuffle_ps( (in), (r), _MM_SHUFFLE(3,2,1,0) ); \
+	(r)  = _mm_shuffle_ps( (r), (in), _MM_SHUFFLE(1,3,2,1) ); \
+} while(0)
+#endif
 
 static
 void op4s_sdl2_op_s_ref(float *z, const float *c, const float *w, const float *l, const float *r)
@@ -1647,6 +1749,16 @@ void op4s_sdl2_op_s_ref(float *z, const float *c, const float *w, const float *l
 	z[1] = c[1] + w[1] * ( l[1] + r[1] );
 	z[0] = c[0] + w[0] * ( l[0] + r[0] );
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_op_s_sse(z, c, w, l, r) \
+do { \
+	(z) = (l); \
+	(z) = _mm_add_ps((z), (r)); \
+	(z) = _mm_mul_ps((z), (w)); \
+	(z) = _mm_add_ps((z), (c)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl2_update_s_ref(float *c, float *l, float *r, const float *z)
@@ -1666,6 +1778,15 @@ void op4s_sdl2_update_s_ref(float *c, float *l, float *r, const float *z)
 	r[2] = z[2];
 	r[3] = z[3];
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_update_s_sse(c, l, r, z) \
+do { \
+	(c) = (l); \
+	(l) = (r); \
+	(r) = (z); \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_update_s_ref(float *z, float *l, float *r)
@@ -1700,12 +1821,30 @@ void op4s_sdl2_output_low_s_ref(float *out, const float *l, const float *z)
 	out[1] = z[0];
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_output_low_s_sse(out, l, z) \
+do { \
+	(out) = (l); \
+	(out) = _mm_unpacklo_ps((out), (z)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_output_high_s_ref(float *out, const float *l, const float *z)
 {
 	out[2] = l[0];
 	out[3] = z[0];
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_output_high_s_sse(out, l, z) \
+do { \
+	__m128 t; \
+	(t) = (l); \
+	(t) = _mm_unpacklo_ps((t), (z)); \
+	(out) = _mm_shuffle_ps((out), t, _MM_SHUFFLE(1,0,1,0)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl2_scale_s_ref(float *out, const float *v)
@@ -1716,6 +1855,13 @@ void op4s_sdl2_scale_s_ref(float *out, const float *v)
 	out[3] *= v[3];
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_scale_s_sse(out, v) \
+do { \
+	(out) = _mm_mul_ps((out), (v)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_descale_s_ref(float *in, const float *v)
 {
@@ -1725,12 +1871,26 @@ void op4s_sdl2_descale_s_ref(float *in, const float *v)
 	in[3] *= v[3];
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_descale_s_sse(in, v) \
+do { \
+	(in) = _mm_mul_ps((in), (v)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_save_s_ref(float *out, float *addr)
 {
 	addr[0] = out[0];
 	addr[1] = out[1];
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_save_s_sse(out, addr) \
+do { \
+	_mm_storel_pi((__m64 *)(addr), (out)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl2_save_shift_s_ref(float *out, float *addr)
@@ -1741,11 +1901,25 @@ void op4s_sdl2_save_shift_s_ref(float *out, float *addr)
 	addr[3] = out[3];
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_save_shift_s_sse(out, addr) \
+do { \
+	_mm_store_ps((float *)(addr), (out)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_export_s_ref(const float *l, float *addr, int idx)
 {
 	addr[idx] = l[idx];
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_export_s_sse(l, addr, idx) \
+do { \
+	(addr)[(idx)] = (l)[(idx)]; \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_export_s_ref(const float *l, float *addr, int idx)
@@ -1843,7 +2017,7 @@ void op4s_sdl_export_s_ref(const float *l, float *restrict addr, int idx)
 }
 
 static
-void op4s_sdl2_preload_fwd_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
+void op4s_sdl2_preload_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
 	UNUSED(w);
 	UNUSED(v);
@@ -1858,21 +2032,13 @@ void op4s_sdl2_preload_fwd_prolog_s_ref(const float *w, const float *v, float *l
  	(*addr) += 4;
 }
 
-static
-void op4s_sdl2_preload_inv_prolog_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
-{
-	UNUSED(w);
-	UNUSED(v);
-	UNUSED(l);
-	UNUSED(c);
-	UNUSED(r);
-	UNUSED(z);
-	UNUSED(in);
-
-	op4s_sdl2_import_preload_s_ref(out, (*addr));
-
- 	(*addr) += 4;
-}
+#ifdef __SSE__
+#define op4s_sdl2_preload_prolog_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_import_preload_s_sse((out), (*(addr))); \
+	(*(addr)) += 4; \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_preload_prolog_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
@@ -1911,6 +2077,17 @@ void op4s_sdl2_pass_fwd_prolog_full_s_ref(const float *w, const float *v, float 
 	(*addr) += 4;
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_pass_fwd_prolog_full_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_load_s_sse((in), (*(addr))); \
+	op4s_sdl2_shuffle_input_low_s_sse((in), (c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+	(*(addr)) += 4; \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_pass_inv_prolog_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
@@ -1935,6 +2112,18 @@ void op4s_sdl2_pass_inv_prolog_full_s_ref(const float *w, const float *v, float 
 	// pointers
 	(*addr) += 4;
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_pass_inv_prolog_full_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_load_s_sse((in), (*(addr))); \
+	op4s_sdl2_descale_s_sse((in), (v)); \
+	op4s_sdl2_shuffle_input_low_s_sse((in), (c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+	(*(addr)) += 4; \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_pass_inv_prolog_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
@@ -2002,6 +2191,15 @@ void op4s_sdl2_pass_fwd_prolog_light_s_ref(const float *w, const float *v, float
 	op4s_sdl2_update_s_ref(c, l, r, z);
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_pass_fwd_prolog_light_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_input_high_s_sse((in), (c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_pass_inv_prolog_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
@@ -2018,6 +2216,15 @@ void op4s_sdl2_pass_inv_prolog_light_s_ref(const float *w, const float *v, float
 	// update
 	op4s_sdl2_update_s_ref(c, l, r, z);
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_pass_inv_prolog_light_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_input_high_s_sse((in), (c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_pass_inv_prolog_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
@@ -2072,6 +2279,16 @@ void op4s_sdl2_pass_fwd_core_light_s_ref(const float *w, const float *v, float *
 	op4s_sdl2_update_s_ref(c, l, r, z);
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_pass_fwd_core_light_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_input_high_s_sse((in), (c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_low_s_sse((out), (l), (z)); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_pass_inv_core_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
@@ -2090,6 +2307,16 @@ void op4s_sdl2_pass_inv_core_light_s_ref(const float *w, const float *v, float *
 	// update
 	op4s_sdl2_update_s_ref(c, l, r, z);
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_pass_inv_core_light_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_input_high_s_sse((in), (c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_low_s_sse((out), (l), (z)); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_pass_inv_core_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
@@ -2193,6 +2420,20 @@ void op4s_sdl2_pass_fwd_core_full_s_ref(const float *w, const float *v, float *l
 	(*addr) += 4;
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_pass_fwd_core_full_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_load_s_sse((in), (*(addr))); \
+	op4s_sdl2_shuffle_input_low_s_sse((in), (c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_high_s_sse((out), (l), (z)); \
+	op4s_sdl2_scale_s_sse((out), (v)); \
+	op4s_sdl2_save_shift_s_sse((out), (*(addr))-12); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+	(*(addr)) += 4; \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_pass_inv_core_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
@@ -2222,6 +2463,20 @@ void op4s_sdl2_pass_inv_core_full_s_ref(const float *w, const float *v, float *l
 	// pointers
 	(*addr) += 4;
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_pass_inv_core_full_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_load_s_sse((in), (*(addr))); \
+	op4s_sdl2_descale_s_sse((in), (v)); \
+	op4s_sdl2_shuffle_input_low_s_sse((in), (c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_high_s_sse((out), (l), (z)); \
+	op4s_sdl2_save_shift_s_sse((out), (*(addr))-12); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+	(*(addr)) += 4; \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_pass_inv_core_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
@@ -2368,6 +2623,19 @@ void op4s_sdl2_pass_fwd_epilog_full_s_ref(const float *w, const float *v, float 
 	(*addr) += 4;
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_pass_fwd_epilog_full_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_s_sse((c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_high_s_sse((out), (l), (z)); \
+	op4s_sdl2_scale_s_sse((out), (v)); \
+	op4s_sdl2_save_shift_s_sse((out), (*(addr))-12); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+	(*(addr)) += 4; \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_pass_inv_epilog_full_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
@@ -2394,6 +2662,18 @@ void op4s_sdl2_pass_inv_epilog_full_s_ref(const float *w, const float *v, float 
 	// pointers
 	(*addr) += 4;
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_pass_inv_epilog_full_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_s_sse((c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_high_s_sse((out), (l), (z)); \
+	op4s_sdl2_save_shift_s_sse((out), (*(addr))-12); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+	(*(addr)) += 4; \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_pass_inv_epilog_full_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
@@ -2470,6 +2750,16 @@ void op4s_sdl2_pass_fwd_epilog_light_s_ref(const float *w, const float *v, float
 	op4s_sdl2_update_s_ref(c, l, r, z);
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_pass_fwd_epilog_light_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_s_sse((c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_low_s_sse((out), (l), (z)); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_pass_inv_epilog_light_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
@@ -2489,6 +2779,16 @@ void op4s_sdl2_pass_inv_epilog_light_s_ref(const float *w, const float *v, float
 	// update
 	op4s_sdl2_update_s_ref(c, l, r, z);
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_pass_inv_epilog_light_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_s_sse((c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_low_s_sse((out), (l), (z)); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_pass_inv_epilog_light_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
@@ -2554,6 +2854,18 @@ void op4s_sdl2_pass_fwd_epilog_flush_s_ref(const float *w, const float *v, float
 	op4s_sdl2_update_s_ref(c, l, r, z);
 }
 
+#ifdef __SSE__
+#define op4s_sdl2_pass_fwd_epilog_flush_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_s_sse((c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_low_s_sse((out), (l), (z)); \
+	op4s_sdl2_scale_s_sse((out), (v)); \
+	op4s_sdl2_save_s_sse((out), (*(addr))-12); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+} while(0)
+#endif
+
 static
 void op4s_sdl2_pass_inv_epilog_flush_s_ref(const float *w, const float *v, float *l, float *c, float *r, float *z, float *in, float *out, float *restrict *addr)
 {
@@ -2577,6 +2889,17 @@ void op4s_sdl2_pass_inv_epilog_flush_s_ref(const float *w, const float *v, float
 	// update
 	op4s_sdl2_update_s_ref(c, l, r, z);
 }
+
+#ifdef __SSE__
+#define op4s_sdl2_pass_inv_epilog_flush_s_sse(w, v, l, c, r, z, in, out, addr) \
+do { \
+	op4s_sdl2_shuffle_s_sse((c), (r)); \
+	op4s_sdl2_op_s_sse((z), (c), (w), (l), (r)); \
+	op4s_sdl2_output_low_s_sse((out), (l), (z)); \
+	op4s_sdl2_save_s_sse(out, (*(addr))-12); \
+	op4s_sdl2_update_s_sse((c), (l), (r), (z)); \
+} while(0)
+#endif
 
 static
 void op4s_sdl6_pass_inv_epilog_flush_s_ref(const float *w, const float *v, float *l, float *r, float *z, float *in, float *out, float *restrict *addr)
@@ -2825,7 +3148,12 @@ void op4s_sdl_pass_inv_epilog_s_ref(const float *w, const float *v, float *l, fl
 	(*addr) += 2;
 }
 
-// 6 iterations merger, i.e. 12=2*(3*2) coefficient per iteration
+/**
+ * @brief Shifted Double-Loop implementation of lifting scheme with 6
+ * iterations merger.
+ *
+ * i.e. 12 = (6)*(2) = (2*3)*(2) coefficients per one iteration.
+ */
 static
 void accel_lift_op4s_main_sdl6_ref_s(
 	float *restrict arr,
@@ -2902,32 +3230,32 @@ void accel_lift_op4s_main_sdl6_ref_s(
 			// core: pass1-core-light
 			op4s_sdl6_pass_inv_core_light_s_ref(w, v, /*l*/l, /*r*/r, /*z*/z, in, out, &addr);
 
-			// NOTE: z => l, l => r, r => z -- 1st rotation
+			// NOTE: z => l, l => r, r => z
 
 			// core: pass1-core-full
 			op4s_sdl6_pass_inv_core_full_s_ref(w, v, /*l*/r, /*r*/z, /*z*/l, in, out, &addr);
 
-			// NOTE: (r => z) => l, (z => l) => r, (l => r) => z -- 2nd rotation
+			// NOTE: (r => z) => l, (z => l) => r, (l => r) => z
 
 			// core: pass2-core-light
 			op4s_sdl6_pass_inv_core_light_s_ref(w, v, /*l*/z, /*r*/l, /*z*/r, in, out, &addr);
 
-			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r) => z -- 3rd rotation, as at the beginning
+			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r) => z
 
 			// core: pass2-core-full
 			op4s_sdl6_pass_inv_core_full_s_ref(w, v, /*l*/l, /*r*/r, /*z*/z, in, out, &addr);
 
-			// NOTE: z => l, l => r, r => z -- 1st rotation
+			// NOTE: z => l, l => r, r => z
 
 			// core: pass3-core-light
 			op4s_sdl6_pass_inv_core_light_s_ref(w, v, /*l*/r, /*r*/z, /*z*/l, in, out, &addr);
 
-			// NOTE: (r => z) => l, (z => l) => r, (l => r) => z -- 2nd rotation
+			// NOTE: (r => z) => l, (z => l) => r, (l => r) => z
 
 			// core: pass3-core-full
 			op4s_sdl6_pass_inv_core_full_s_ref(w, v, /*l*/z, /*r*/l, /*z*/r, in, out, &addr);
 
-			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r) => z -- 3rd rotation, as at the beginning
+			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r) => z
 		}
 
 		// core: for t = 0 to T do
@@ -3053,7 +3381,7 @@ void accel_lift_op4s_main_sdl6_ref_s(
 			// core: pass2-core-light
 			op4s_sdl6_pass_fwd_core_light_s_ref(w, v, /*l*/z, /*r*/l, /*z*/r, in, out, &addr);
 
-			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r)
+			// NOTE: ((l => r) => z) => l, ((r => z) => l) => r, ((z => l) => r) => z
 
 			// core: pass2-core-full
 			op4s_sdl6_pass_fwd_core_full_s_ref(w, v, /*l*/l, /*r*/r, /*z*/z, in, out, &addr);
@@ -3146,7 +3474,11 @@ void accel_lift_op4s_main_sdl6_ref_s(
 	}
 }
 
-// 2 iterations merged, i.e. loads 4 (2*2) coeffs in every iter.
+/**
+ * @brief SDL with 2 iterations merged.
+ *
+ * i.e. loads and stores 4 = (2)*(2) coefficients in every iteration.
+ */
 static
 void accel_lift_op4s_main_sdl2_ref_s(
 	float *restrict arr,
@@ -3189,7 +3521,7 @@ void accel_lift_op4s_main_sdl2_ref_s(
 		// *** prolog2 ***
 
 		// prolog2: import-preload
-		op4s_sdl2_preload_inv_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+		op4s_sdl2_preload_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
 		// prolog2: import(3)
 		op4s_sdl2_import_s_ref(l, 3, out);
@@ -3294,15 +3626,13 @@ void accel_lift_op4s_main_sdl2_ref_s(
 		// *** prolog2 ***
 
 		// prolog2: import-preload
-		op4s_sdl2_preload_fwd_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
+		op4s_sdl2_preload_prolog_s_ref(w, v, l, c, r, z, in, out, &addr);
 
 		// prolog2: import(3)
 		op4s_sdl2_import_s_ref(l, 3, out);
 
 		// prolog2: pass-prolog-full
 		op4s_sdl2_pass_fwd_prolog_full_s_ref(w, v, l, c, r, z, in, out, &addr);
-		const int S = steps-3;
-		const int T = S >> 1;
 
 		// prolog2: import(2)
 		op4s_sdl2_import_s_ref(l, 2, out);
@@ -3396,6 +3726,261 @@ void accel_lift_op4s_main_sdl2_ref_s(
 	}
 }
 
+#ifdef __SSE__
+static
+void accel_lift_op4s_main_sdl2_sse_s(
+	float *restrict arr,
+	int steps,
+	float alpha,
+	float beta,
+	float gamma,
+	float delta,
+	float zeta,
+	int scaling)
+{
+	// 6+ coeffs implies 3+ steps
+	assert( steps >= 3 );
+
+	assert( is_aligned_16(arr) );
+
+	// FIXME: global variables?
+	const __m128 w = { delta, gamma, beta, alpha };
+	const __m128 v = { 1/zeta, zeta, 1/zeta, zeta };
+	__m128 l;
+	__m128 c;
+	__m128 r;
+	__m128 z;
+	__m128 in;
+	__m128 out;
+
+	const int S = steps-3;
+	const int T = S >> 1;
+
+	if( scaling < 0 )
+	{
+		// ****** inverse transform ******
+
+		// FIXME(ASVP): support for several workers
+		assert( 1 == dwt_util_get_num_workers() );
+
+		// *** init ***
+
+		float *restrict addr = arr;
+
+		// *** prolog2 ***
+
+		// prolog2: import-preload
+		op4s_sdl2_preload_prolog_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(3)
+		op4s_sdl2_import_s_sse(l, 3, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl2_pass_inv_prolog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(2)
+		op4s_sdl2_import_s_sse(l, 2, out);
+
+		// prolog2: pass-prolog-light
+		op4s_sdl2_pass_inv_prolog_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(1)
+		op4s_sdl2_import_s_sse(l, 1, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl2_pass_inv_prolog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(0)
+		op4s_sdl2_import_s_sse(l, 0, out);
+
+		// *** core ***
+
+		// core: for t = 0 to T do
+		for(int t = 0; t < T; t++)
+		{
+			// core: pass-core-light
+			op4s_sdl2_pass_inv_core_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// core: pass-core-full
+			op4s_sdl2_pass_inv_core_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+		}
+
+		// core: if odd then
+		if( is_odd(S) )
+		{
+			// core: pass-core-light
+			op4s_sdl2_pass_inv_core_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+		}
+
+		// *** epilog2 ***
+
+		if( is_odd(S) )
+		{
+			// epilog2: export(3)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_inv_epilog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl2_pass_inv_epilog_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_inv_epilog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 0);
+		}
+		else
+		{
+			// epilog2: export(3)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl2_pass_inv_epilog_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_inv_epilog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-flush
+			op4s_sdl2_pass_inv_epilog_flush_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 0);
+		}
+	}
+	else if ( scaling > 0 )
+	{
+		// ****** forward transform ******
+
+		// FIXME(ASVP): support for several workers
+		assert( 1 == dwt_util_get_num_workers() );
+
+		// *** init ***
+
+		float *restrict addr = arr;
+
+		// *** prolog2 ***
+
+		// prolog2: import-preload
+		op4s_sdl2_preload_prolog_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(3)
+		op4s_sdl2_import_s_sse(l, 3, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl2_pass_fwd_prolog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(2)
+		op4s_sdl2_import_s_sse(l, 2, out);
+
+		// prolog2: pass-prolog-light
+		op4s_sdl2_pass_fwd_prolog_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(1)
+		op4s_sdl2_import_s_sse(l, 1, out);
+
+		// prolog2: pass-prolog-full
+		op4s_sdl2_pass_fwd_prolog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+		// prolog2: import(0)
+		op4s_sdl2_import_s_sse(l, 0, out);
+
+		// *** core ***
+
+		// core: for t = 0 to T do
+		for(int t = 0; t < T; t++)
+		{
+			// core: pass-core-light
+			op4s_sdl2_pass_fwd_core_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// core: pass-core-full
+			op4s_sdl2_pass_fwd_core_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+		}
+
+		// core: if odd then
+		if( is_odd(S) )
+		{
+			// core: pass-core-light
+			op4s_sdl2_pass_fwd_core_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+		}
+
+		// *** epilog2 ***
+
+		if( is_odd(S) )
+		{
+			// epilog2: export(3)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_fwd_epilog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl2_pass_fwd_epilog_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_fwd_epilog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 0);
+		}
+		else
+		{
+			// epilog2: export(3)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 3);
+
+			// epilog2: pass-epilog-light
+			op4s_sdl2_pass_fwd_epilog_light_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(2)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 2);
+
+			// epilog2: pass-epilog-full
+			op4s_sdl2_pass_fwd_epilog_full_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(1)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 1);
+
+			// epilog2: pass-epilog-flush
+			op4s_sdl2_pass_fwd_epilog_flush_s_sse(w, v, l, c, r, z, in, out, &addr);
+
+			// epilog2: export(0)
+			op4s_sdl2_export_s_sse(l, &arr[2*steps], 0);
+		}
+	}
+	else
+	{
+		// ****** transform w/o scaling ******
+
+		// not implemented yet
+		dwt_util_abort();
+	}
+}
+#endif /* __SSE__ */
+
+/**
+ * @brief Shifted double-loop algorithm.
+ *
+ * This function processes 2 coefficients (even + odd) per one iteration.
+ */
 static
 void accel_lift_op4s_main_sdl_ref_s(
 	float *restrict arr,
@@ -3528,10 +4113,10 @@ void accel_lift_op4s_main_sdl_ref_s(
 
 		// *** core ***
 
-		// core: for s = 0 to S-3 do
+		// core: for s = 0 to S do
 		for(int s = 0; s < S; s++)
 		{
-			// NOTE: core: pass-core
+			// core: pass-core
 			op4s_sdl_pass_fwd_core_s_ref(w, v, l, c, r, z, in, out, &addr);
 
 		}
@@ -3569,7 +4154,8 @@ void accel_lift_op4s_main_sdl_ref_s(
 }
 
 /**
- * "double-loop algorithm" from Rade Kutil: A Single-Loop Approach to SIMD Parallelization of 2-D Wavelet Lifting.
+ * @brief Double-loop algorithm from Rade Kutil: A Single-Loop Approach to
+ * SIMD Parallelization of 2-D Wavelet Lifting.
  */
 static
 void accel_lift_op4s_main_dl_s(
@@ -3729,7 +4315,7 @@ int dwt_util_is_aligned_4(
  * @brief Accelerated PicoBlaze operation.
  *
  * Two pairs (predict and update) of lifting steps and coefficients scaling
- * merged together. This function is accelerated on EdkDSP.
+ * merged together. This function is accelerated on ASVP/EdkDSP.
  */
 static
 void accel_lift_op4s_main_pb_s(
@@ -4269,6 +4855,23 @@ void accel_lift_op4s_s(
 				accel_lift_op4s_main_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
 			else
 				accel_lift_op4s_main_sdl6_ref_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
+		}
+		else if(8 == get_accel_type())
+		{
+			const int steps = (to_even(len-off)-4)/2;
+
+			if( steps < 3 )
+				accel_lift_op4s_main_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
+			else
+#ifdef __SSE__
+				accel_lift_op4s_main_sdl2_sse_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
+#else
+				accel_lift_op4s_main_sdl2_ref_s(arr+off, steps, alpha, beta, gamma, delta, zeta, scaling);
+#endif
+		}
+		else if(9 == get_accel_type())
+		{
+			// TODO
 		}
 		else
 			dwt_util_abort(); // unsupported value
@@ -6686,7 +7289,7 @@ const char *node()
 
 const char *dwt_util_node()
 {
-		return node();
+	return node();
 }
 
 static
@@ -6935,4 +7538,39 @@ void dwt_util_subband_d(
 		dst_ptr,
 		dst_size_x,
 		dst_size_y);
+}
+
+void dwt_util_conv_show_s(
+	const void *src,
+	void *dst,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y)
+{
+	assert( src != NULL && dst != NULL && size_i_big_x >= 0 && size_i_big_y >= 0 );
+
+#ifndef __SSE__
+	dwt_util_log(LOG_ERR, "%s fails due to missing SSE support.\n", __FUNCTION__);
+#else /* __SSE__ */
+	// magic constants
+	const float a = 100.f;
+	const float b = 10.f;
+
+	for(int y = 0; y < size_i_big_y; y++)
+	{
+		for(int x = 0; x < size_i_big_x; x++)
+		{
+			const float coeff = *addr2_const_s(src, y, x, stride_x, stride_y);
+			float *log_coeff = addr2_s(dst, y, x, stride_x, stride_y);
+
+#ifdef microblaze
+			// logf is not available on microblaze
+			*log_coeff = log(1.f+fabsf(coeff)*a)/b;
+#else /* microblaze */
+			*log_coeff = logf(1.f+fabsf(coeff)*a)/b;
+#endif/* microblaze */
+		}
+	}
+#endif /* __SSE__ */
 }
