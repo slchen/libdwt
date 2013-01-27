@@ -15,5 +15,6 @@
  * library home page</a> for the latest version.
  *
  * @section Acknowledgment
- * This work has been supported by the EU FP7-ARTEMIS project SMECY, grant no. 100230.
+ * This work has been supported by the EU FP7-ARTEMIS project
+ * <a href="http://www.smecy.eu/">SMECY</a>, grant no. 100230.
  */

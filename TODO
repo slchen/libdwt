@@ -15,7 +15,7 @@
 * remove "lib" prefix pro source file names
 * 2D DWT: single-loop approach (iteration of horizontal part is immediately fed into iteration of vertical part)
 * memory access through incremented pointers instead of indexed arrays
-* use size_t, ssize_t, etc. instead of unsigned int, int, ...
+* use size_t, etc. instead of unsigned int, etc.
 * 3D data support
 * ARM support
 * ASVP: upload new data when waiting for preceding operation (use memory bank "D", then copy to bank "A")

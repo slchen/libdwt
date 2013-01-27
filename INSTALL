@@ -19,6 +19,10 @@ Compile the example application like above but with command:
 
 make ARCH=x86_64
 
+For disabling SSE support use command like:
+
+make ARCH=x86_64+nosse
+
 For example, a simple application showing libdwt API usage can be compiled
 and started with:
 

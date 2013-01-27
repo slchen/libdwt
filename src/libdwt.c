@@ -355,11 +355,13 @@ int is_valid_data_step_s(const float *data_step)
 #include <assert.h> // assert
 #include <stddef.h> // NULL, size_t
 
+#ifndef microblaze
 #ifndef __SSE__
-	 // HACK: stdlib.h:280:1: error: SSE register return with SSE disabled
+	 // HACK(x86): stdlib.h:280:1: error: SSE register return with SSE disabled
 	#warning INFO: Using ugly non-SSE workaround
 	#undef __USE_EXTERN_INLINES
-#endif
+#endif /* __SSE__ */
+#endif /* microblaze */
 
 #include <stdlib.h> // abort, malloc, free
 #include <limits.h> // CHAR_BIT
@@ -427,7 +429,7 @@ void flush_cache(
 	size_t size	///< length of memory in bytes
 	)
 {
-	// FIXME: 4 or 8, should be detected
+	// FIXME(ASVP): 4 or 8, should be detected
 	const size_t dcache_line_len = 4;
 
 	intptr_t tmp = size + (dcache_line_len * 4);
@@ -937,6 +939,17 @@ const float *addr2_const_s(
 	return (const float *)((const char *)ptr+y*stride_x+x*stride_y);
 }
 
+static
+const double *addr2_const_d(
+	const void *ptr,
+	int y,
+	int x,
+	int stride_x,
+	int stride_y)
+{
+	return (const double *)((const char *)ptr+y*stride_x+x*stride_y);
+}
+
 float *dwt_util_addr_coeff_s(
 	void *ptr,
 	int y,
@@ -1075,7 +1088,11 @@ void dwt_util_test_image_value_i_d(
 			break;
 #endif
 		default:
+		{
+			dwt_util_log(LOG_ERR, "Unknown test image type.\n");
+
 			dwt_util_abort();
+		}
 	}
 }
 
@@ -1103,10 +1120,15 @@ void dwt_util_test_image_value_i_s(
 			break;
 #endif
 		default:
+		{
+			dwt_util_log(LOG_ERR, "Unknown test image type.\n");
+
 			dwt_util_abort();
+		}
 	}
 }
 
+// TODO: propagate type of test image
 void dwt_util_test_image_fill_d(
 	void *ptr,
 	int stride_x,
@@ -1128,6 +1150,7 @@ void dwt_util_test_image_fill_d(
 			);
 }
 
+// TODO: propagate type of test image
 void dwt_util_test_image_fill_s(
 	void *ptr,
 	int stride_x,
@@ -1177,7 +1200,7 @@ void dwt_util_alloc_image(
 
 	*pptr = malloc(stride_x*size_o_big_y);
 	if(NULL == *pptr)
-		abort();
+		dwt_util_abort();
 }
 
 void dwt_util_free_image(
@@ -1781,12 +1804,11 @@ void op4s_sdl6_op_s_ref(float *z, const float *w, const float *l, const float *r
 #ifdef __SSE__
 #define op4s_sdl6_op_s_sse(z, w, l, r) \
 do { \
-	__m128 c; \
-	(c) = (z); \
-	(z) = (l); \
-	(z) = _mm_add_ps((z), (r)); \
-	(z) = _mm_mul_ps((z), (w)); \
-	(z) = _mm_add_ps((z), (c)); \
+	__m128 t; \
+	(t) = (l); \
+	(t) = _mm_add_ps((t), (r)); \
+	(t) = _mm_mul_ps((t), (w)); \
+	(z) = _mm_add_ps((z), (t)); \
 } while(0)
 #endif
 
@@ -2197,7 +2219,7 @@ void op4s_sdl6_pass_inv_prolog_full_s_ref(const float *w, const float *v, float 
 	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// update
 	op4s_sdl6_update_s_ref(z, l, r);
@@ -2233,7 +2255,7 @@ void op4s_sdl6_pass_fwd_prolog_full_s_ref(const float *w, const float *v, float 
 	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// update
 	op4s_sdl6_update_s_ref(z, l, r);
@@ -2316,7 +2338,7 @@ void op4s_sdl6_pass_inv_prolog_light_s_ref(const float *w, const float *v, float
 	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// update
 	op4s_sdl6_update_s_ref(z, l, r);
@@ -2342,7 +2364,7 @@ void op4s_sdl6_pass_fwd_prolog_light_s_ref(const float *w, const float *v, float
 	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// update
 	op4s_sdl6_update_s_ref(z, l, r);
@@ -2425,7 +2447,7 @@ void op4s_sdl6_pass_inv_core_light_s_ref(const float *w, const float *v, float *
 	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-low
 	op4s_sdl2_output_low_s_ref(out, l, z);
@@ -2452,7 +2474,7 @@ void op4s_sdl6_pass_fwd_core_light_s_ref(const float *w, const float *v, float *
 	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-low
 	op4s_sdl2_output_low_s_ref(out, l, z);
@@ -2479,7 +2501,7 @@ void op4s_sdl6_pass_inv_postcore_light_s_ref(const float *w, const float *v, flo
 	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-low
 	op4s_sdl2_output_low_s_ref(out, l, z);
@@ -2508,7 +2530,7 @@ void op4s_sdl6_pass_fwd_postcore_light_s_ref(const float *w, const float *v, flo
 	op4s_sdl2_shuffle_input_high_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-low
 	op4s_sdl2_output_low_s_ref(out, l, z);
@@ -2626,7 +2648,7 @@ void op4s_sdl6_pass_inv_core_full_s_ref(const float *w, const float *v, float *l
 	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-high
 	op4s_sdl2_output_high_s_ref(out, l, z);
@@ -2667,7 +2689,7 @@ void op4s_sdl6_pass_fwd_core_full_s_ref(const float *w, const float *v, float *l
 	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-high
 	op4s_sdl2_output_high_s_ref(out, l, z);
@@ -2710,7 +2732,7 @@ void op4s_sdl6_pass_inv_postcore_full_s_ref(const float *w, const float *v, floa
 	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-high
 	op4s_sdl2_output_high_s_ref(out, l, z);
@@ -2753,7 +2775,7 @@ void op4s_sdl6_pass_fwd_postcore_full_s_ref(const float *w, const float *v, floa
 	op4s_sdl2_shuffle_input_low_s_ref(in, z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-high
 	op4s_sdl2_output_high_s_ref(out, l, z);
@@ -2874,7 +2896,7 @@ void op4s_sdl6_pass_inv_epilog_full_s_ref(const float *w, const float *v, float 
 	op4s_sdl2_shuffle_s_ref(z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-high
 	op4s_sdl2_output_high_s_ref(out, l, z);
@@ -2913,7 +2935,7 @@ void op4s_sdl6_pass_fwd_epilog_full_s_ref(const float *w, const float *v, float 
 	op4s_sdl2_shuffle_s_ref(z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-high
 	op4s_sdl2_output_high_s_ref(out, l, z);
@@ -3015,7 +3037,7 @@ void op4s_sdl6_pass_inv_epilog_light_s_ref(const float *w, const float *v, float
 	op4s_sdl2_shuffle_s_ref(z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-low
 	op4s_sdl2_output_low_s_ref(out, l, z);
@@ -3045,7 +3067,7 @@ void op4s_sdl6_pass_fwd_epilog_light_s_ref(const float *w, const float *v, float
 	op4s_sdl2_shuffle_s_ref(z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-low
 	op4s_sdl2_output_low_s_ref(out, l, z);
@@ -3145,7 +3167,7 @@ void op4s_sdl6_pass_inv_epilog_flush_s_ref(const float *w, const float *v, float
 	op4s_sdl2_shuffle_s_ref(z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-low
 	op4s_sdl2_output_low_s_ref(out, l, z);
@@ -3180,7 +3202,7 @@ void op4s_sdl6_pass_fwd_epilog_flush_s_ref(const float *w, const float *v, float
 	op4s_sdl2_shuffle_s_ref(z, r);
 
 	// operation
-	op4s_sdl2_op_s_ref(z, z, w, l, r);
+	op4s_sdl6_op_s_ref(z, w, l, r);
 
 	// output-low
 	op4s_sdl2_output_low_s_ref(out, l, z);
@@ -4936,7 +4958,7 @@ void accel_lift_op4s_main_pb_s(
 
 	for(int w = 0; w < get_active_workers(); w++)
 	{
-		// FIXME: channel w according to worker ID; but each worker has independent DMA channels, thus this is not necessary
+		// FIXME(ASVP): channel w according to worker ID; but each worker has independent DMA channels, thus this is not necessary
 		const uint8_t ch = w;
 		float *addr_local = calc_temp_offset_s(addr, w);
 		
@@ -4948,7 +4970,7 @@ void accel_lift_op4s_main_pb_s(
 
 	for(int w = 0; w < get_active_workers(); w++)
 	{
-		// HACK: wait for completing memory transfers on all 8 channels; but each worker has independent DMA channels
+		// HACK(ASVP): wait for completing memory transfers on all 8 channels; but each worker has independent DMA channels
 		while( wal_dma_isbusy(worker[w], /*WAL_DMA_MASK(ch)*/ 0x0f) )
 			;
 	}
@@ -4993,7 +5015,7 @@ void accel_lift_op4s_main_pb_s(
 	{
 		float *addr_local = calc_temp_offset_s(addr, w);
 
-		flush_cache_s(addr_local-1, size); // HACK: why -1?
+		flush_cache_s(addr_local-1, size); // HACK(ASVP): why -1?
 	}
 #else /* microblaze */
 	// fallback
@@ -5391,7 +5413,7 @@ void accel_lift_op4s_s(
 				const int left = off + blocks * max_inner_len;
 				const int steps = (off + inner_len - left)/2;
 
-				// TODO: here should be a test if last block should be accelerated on PicoBlaze or rather computed on MicroBlaze
+				// TODO(ASVP): here should be a test if last block should be accelerated on PicoBlaze or rather computed on MicroBlaze
 				if( steps > 25 )
 					accel_lift_op4s_main_pb_s(&arr[left], steps, alpha, beta, gamma, delta, zeta, scaling);
 				else
@@ -5469,7 +5491,11 @@ void accel_lift_op4s_s(
 #endif
 		}
 		else
-			dwt_util_abort(); // unsupported value
+		{
+			dwt_util_log(LOG_ERR, "Unsupported value of acceleration.\n");
+
+			dwt_util_abort();
+		}
 
 		accel_lift_op4s_epilog_s(arr, off, len, alpha, beta, gamma, delta, zeta, scaling);
 	}
@@ -5977,6 +6003,7 @@ void dwt_util_switch_op(
 #ifdef microblaze
 	if( op == dwt_util_global_active_op )
 		return;
+
 	//WAL_CHECK( wal_mb2pb(worker, 0) );
 
 	//WAL_CHECK( wal_bce_jk_sync_operation(worker) );
@@ -6002,7 +6029,7 @@ void dwt_util_switch_op(
 				zeta = dwt_cdf97_s1_s;
 
 			const int size = 12;
-			// FIXME: for these coeeficients, use memory bank "D"
+			// FIXME(ASVP): for these coeeficients, use memory bank "D"
 			const float coeffs[12] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta, 0.0f};
 			float *addr = dwt_util_allocate_vec_s(size);
 			if(!addr)
@@ -6010,7 +6037,8 @@ void dwt_util_switch_op(
 				dwt_util_log(LOG_ERR, "Failed to allocate vector of %i floats.\n", size);
 				dwt_util_abort();
 			}
-			dwt_util_copy_vec_s(coeffs, addr, size);
+			if( dwt_util_copy_vec_s(coeffs, addr, size) )
+				dwt_util_abort();
 
 			assert( is_even(size) );
 			assert( is_aligned_8(addr) );
@@ -6040,7 +6068,7 @@ void dwt_util_switch_op(
 				zeta = dwt_cdf97_s1_s;
 
 			const int size = 12;
-			// FIXME: for these coeeficients, use memory bank "D"
+			// FIXME(ASVP): for these coeeficients, use memory bank "D"
 			const float coeffs[12] = {delta, 0.0f, gamma, 0.0f, beta, 0.0f, alpha, 0.0f, zeta, 0.0f, 1/zeta, 0.0f};
 			float *addr = dwt_util_allocate_vec_s(size);
 			if(!addr)
@@ -6048,7 +6076,8 @@ void dwt_util_switch_op(
 				dwt_util_log(LOG_ERR, "Failed to allocate vector of %i floats.\n", size);
 				dwt_util_abort();
 			}
-			dwt_util_copy_vec_s(coeffs, addr, size);
+			if( dwt_util_copy_vec_s(coeffs, addr, size) )
+				dwt_util_abort();
 
 			assert( is_even(size) );
 			assert( is_aligned_8(addr) );
@@ -6065,7 +6094,11 @@ void dwt_util_switch_op(
 		}
 		break;
 		default:
+		{
+			dwt_util_log(LOG_ERR, "Unknown operation.\n");
+	
 			dwt_util_abort();
+		}
 	}
 
 	dwt_util_global_active_op = op;
@@ -7429,13 +7462,13 @@ void dwt_util_init()
 	{
 		WAL_CHECK( wal_init_worker(worker[w]) );
 
-		// FIXME: translate DWT_OP_LIFT4SA into WAL_PBID_P0 by function
+		// FIXME(ASVP): translate DWT_OP_LIFT4SA into WAL_PBID_P0 by function
 	
 		WAL_CHECK( wal_set_firmware(worker[w], WAL_PBID_P0 /*DWT_OP_LIFT4SA*/, fw_fp01_lift4sa, -1) );
 
 		WAL_CHECK( wal_set_firmware(worker[w], WAL_PBID_P1 /*DWT_OP_LIFT4SB*/, fw_fp01_lift4sb, -1) );
 
-		// TODO: call switch_op()
+		// TODO(ASVP): call switch_op()
 
 		WAL_CHECK( wal_reset_worker(worker[w]) );
 
@@ -7473,7 +7506,7 @@ void dwt_util_abort()
 #ifdef microblaze
 	for(int w = 0; w < get_total_workers(); w++)
 	{
-		// FIXME: is this legal? although the operation was not running?
+		// FIXME(ASVP): is this legal? although the operation was not running?
 		wal_end_operation(worker[w]);
 
 		// deinitialize worker
@@ -7489,7 +7522,7 @@ void dwt_util_abort()
 int dwt_util_save_to_pgm_s(
 	const char *filename,
 	float max_value,
-	void *ptr,
+	const void *ptr,
 	int stride_x,
 	int stride_y,
 	int size_i_big_x,
@@ -7511,13 +7544,13 @@ int dwt_util_save_to_pgm_s(
 	{
 		for(int x = 0; x < size_i_big_x; x++)
 		{
-			const float px = *addr2_s(ptr, y, x, stride_x, stride_y);
+			const float px = *addr2_const_s(ptr, y, x, stride_x, stride_y);
 
 			int val = (target_max_value*px/max_value);
 
 			if( px - 1e-3f > max_value )
 			{
-				if( !err++)
+				if( !err++ )
 					dwt_util_log(LOG_WARN, "%s: Maximum pixel intensity exceeded (%f > %f). Such an incident will be reported only once.\n", __FUNCTION__, px, max_value);
 			}
 
@@ -7533,6 +7566,74 @@ int dwt_util_save_to_pgm_s(
 			}
 
 			if( px < 0.0f )
+			{
+				val = 0;
+			}
+
+			if( fprintf(file, "%i\n", val) < 0)
+			{
+				dwt_util_log(LOG_WARN, "%s: error writing into file.\n", __FUNCTION__);
+				fclose(file);
+				return 1;
+			}
+		}
+	}
+
+	fclose(file);
+
+	if( err )
+		dwt_util_log(LOG_WARN, "%s: %i errors ocurred while saving a file.\n", __FUNCTION__, err);
+
+	return 0;
+}
+
+int dwt_util_save_to_pgm_d(
+	const char *filename,
+	double max_value,
+	const void *ptr,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y)
+{
+	assert( max_value != 0.0f && size_i_big_x >= 0 && size_i_big_y >= 0 );
+
+	const int target_max_value = 255;
+
+	FILE *file = fopen(filename, "w");
+	if(NULL == file)
+		return 1;
+
+	fprintf(file, "P2\n%i %i\n%i\n", size_i_big_x, size_i_big_y, target_max_value);
+
+	int err = 0;
+
+	for(int y = 0; y < size_i_big_y; y++)
+	{
+		for(int x = 0; x < size_i_big_x; x++)
+		{
+			const double px = *addr2_const_d(ptr, y, x, stride_x, stride_y);
+
+			int val = (target_max_value*px/max_value);
+
+			if( px - 1e-6 > max_value )
+			{
+				if( !err++ )
+					dwt_util_log(LOG_WARN, "%s: Maximum pixel intensity exceeded (%f > %f). Such an incident will be reported only once.\n", __FUNCTION__, px, max_value);
+			}
+
+			if( px > max_value )
+			{
+				val = target_max_value;
+			}
+
+			if( px + 1e-6 < 0.0 )
+			{
+				if( !err++ )
+					dwt_util_log(LOG_WARN, "%s: Minimum pixel intensity exceeded (%f < %f). Such an incident will be reported only once.\n", __FUNCTION__, px, 0.0f);
+			}
+
+			if( px < 0.0 )
 			{
 				val = 0;
 			}
@@ -7575,8 +7676,7 @@ int dwt_util_is_normal_or_zero(float a)
 	return dwt_util_is_normal_or_zero_i(&a);
 }
 
-// FIXME: this should not abort the program, only error code should be returned
-void dwt_util_cmp_s_i(const float *a, const float *b)
+int dwt_util_cmp_s_i(const float *a, const float *b)
 {
 	assert( a );
 	assert( b );
@@ -7585,32 +7685,36 @@ void dwt_util_cmp_s_i(const float *a, const float *b)
 
 	if( !dwt_util_is_normal_or_zero_i(a) || !dwt_util_is_normal_or_zero_i(b) )
 	{
-		printf("ERROR: %f or %f is not normal nor zero!\n", *a, *b);
-		dwt_util_abort();
+		dwt_util_log(LOG_ERR, "%f or %f is not normal nor zero!\n", *a, *b);
+		return 1;
 	}
 
 	if( fabsf( (*a) - (*b) ) > eps )
 	{
-		printf("ERROR: %f should be %f!\n", *a, *b);
-		dwt_util_abort();
+		dwt_util_log(LOG_ERR, "%f should be %f!\n", *a, *b);
+		return 1;
 	}
+
+	return 0;
 }
 
-// FIXME: this should not abort the program, only error code should be returned
-void dwt_util_cmp_s(float a, float b)
+int dwt_util_cmp_s(float a, float b)
 {
-	dwt_util_cmp_s_i(&a, &b);
+	return dwt_util_cmp_s_i(&a, &b);
 }
 
-void dwt_util_generate_vec_s(float *addr, int size)
+int dwt_util_generate_vec_s(float *addr, int size)
 {
-	for(int i=0; i<size; i++)
+	for(int i = 0; i < size; i++)
 		addr[i] = (float)i;
 
-	for(int i=0; i<size; i++)
+	for(int i = 0; i < size; i++)
 	{
-		dwt_util_cmp_s(addr[i], (float)i);
+		if( dwt_util_cmp_s(addr[i], (float)i) )
+			return 1;
 	}
+
+	return 0;
 }
 
 // 4-bytes alignment
@@ -7672,41 +7776,50 @@ float *dwt_util_allocate_vec_s(int size)
 	return addr;
 }
 
-void dwt_util_zero_vec_s(float *addr, int size)
+int dwt_util_zero_vec_s(float *addr, int size)
 {
-	for(int i=0; i<size; i++)
+	for(int i = 0; i < size; i++)
 		addr[i] = (float)0;
 
-	for(int i=0; i<size; i++)
+	for(int i = 0; i < size; i++)
 	{
-		dwt_util_cmp_s(addr[i], (float)0);
+		if( dwt_util_cmp_s(addr[i], (float)0) )
+			return 1;
 	}
+
+	return 0;
 }
 
-void dwt_util_copy_vec_s(const float *src, float *dst, int size)
+int dwt_util_copy_vec_s(const float *src, float *dst, int size)
 {
 	dwt_util_memcpy_stride_s(dst, sizeof(dst[0]), src, sizeof(src[0]), size);
 
-	for(int i=0; i<size; i++)
+	for(int i = 0; i < size; i++)
 	{
-		dwt_util_cmp_s(dst[i], src[i]);
+		if( dwt_util_cmp_s(dst[i], src[i]) )
+			return 1;
 	}
+
+	return 0;
 }
 
-void dwt_util_cmp_vec_s(const float *a, const float *b, int size)
+int dwt_util_cmp_vec_s(const float *a, const float *b, int size)
 {
 	for(int i = size-1; i >= 0; i--)
 	{
-		dwt_util_cmp_s(a[i], b[i]);
+		if( dwt_util_cmp_s(a[i], b[i]) )
+			return 1;
 	}
+
+	return 0;
 }
 
 void dwt_util_print_vec_s(const float *addr, int size)
 {
-	printf("[ ");
-	for(int i=0; i<size; i++)
-		printf("%f ", addr[i]);
-	printf("]\n");
+	dwt_util_log(LOG_NONE, "[ ");
+	for(int i = 0; i < size; i++)
+		dwt_util_log(LOG_NONE, "%f ", addr[i]);
+	dwt_util_log(LOG_NONE, "]\n");
 }
 
 void dwt_util_test()
@@ -7738,18 +7851,21 @@ void dwt_util_test()
 		dwt_util_log(LOG_TEST, "allocating vector of %i floats...\n", size);
 		float *addr = dwt_util_allocate_vec_s(size);
 		if( !addr )
-			abort();
+			dwt_util_abort();
 
-		dwt_util_generate_vec_s(addr, size);
+		if( dwt_util_generate_vec_s(addr, size) )
+			dwt_util_abort();
 
 		dwt_util_log(LOG_TEST, "making copy of vector...\n");
 
 		float *copy = dwt_util_allocate_vec_s(size);
 		if( !copy )
-			abort();
+			dwt_util_abort();
 
-		dwt_util_copy_vec_s(addr, copy, size);
-		dwt_util_cmp_vec_s(addr, copy, size);
+		if( dwt_util_copy_vec_s(addr, copy, size) )
+			dwt_util_abort();
+		if( dwt_util_cmp_vec_s(addr, copy, size) )
+			dwt_util_abort();
 		
 		dwt_util_log(LOG_TEST, "worker %i: memory transfer to BCE memory using new-style function...\n", w);
 
@@ -7758,12 +7874,14 @@ void dwt_util_test()
 
 		if( wal_dma_start(worker[w], 0, WAL_DMA_REQ_RD) )
 			abort();
+
 		while( wal_dma_isbusy(worker[w], 0x1) )
 			;
 
 		dwt_util_log(LOG_TEST, "zeroing memory...\n");
 
-		dwt_util_zero_vec_s(addr, size);
+		if( dwt_util_zero_vec_s(addr, size) )
+			dwt_util_abort();
 
 		dwt_util_log(LOG_TEST, "worker %i: memory transfer from BCE memory using new-style function...\n", w);
 
@@ -7778,7 +7896,8 @@ void dwt_util_test()
 
 		dwt_util_log(LOG_TEST, "comparing with original sequence...\n");
 
-		dwt_util_cmp_vec_s(addr, copy, size);
+		if( dwt_util_cmp_vec_s(addr, copy, size) )
+			dwt_util_abort();
 
 		dwt_util_log(LOG_TEST, "worker %i: calling done worker...\n", w);
 		
@@ -7992,6 +8111,11 @@ int next_prime(int N)
 	return N;
 }
 
+int dwt_util_next_prime(int N)
+{
+	return next_prime(N);
+}
+
 static
 int get_opt_stride(int min_stride)
 {
@@ -8020,7 +8144,7 @@ void dwt_util_subband(
 	int size_i_big_x,
 	int size_i_big_y,
 	int j_max,
-	enum subbands band,
+	enum dwt_subbands band,
 	void **dst_ptr,
 	int *dst_size_x,
 	int *dst_size_y)
@@ -8086,7 +8210,7 @@ void dwt_util_subband_s(
 	int size_i_big_x,
 	int size_i_big_y,
 	int j_max,
-	enum subbands band,
+	enum dwt_subbands band,
 	void **dst_ptr,
 	int *dst_size_x,
 	int *dst_size_y)
@@ -8115,7 +8239,7 @@ void dwt_util_subband_d(
 	int size_i_big_x,
 	int size_i_big_y,
 	int j_max,
-	enum subbands band,
+	enum dwt_subbands band,
 	void **dst_ptr,
 	int *dst_size_x,
 	int *dst_size_y)
@@ -8135,6 +8259,55 @@ void dwt_util_subband_d(
 		dst_size_y);
 }
 
+/**
+ * @brief Natural logarithm of @e x, i.e. ln(x) or log_{e}(x).
+ */
+void log_i_s(float *result, float x)
+{
+#ifdef microblaze
+	*result = log(x);
+#else
+#ifndef __SSE__
+	const float y = 0.693147180559945286226764f; // ln(2)
+	float r;
+
+	__asm__ (
+		"flds %2;"
+		"flds %1;"
+		"fyl2x;"
+		"fstp %0;" : "=m"(r) : "m"(x), "m"(y)
+	);
+
+	*result = r;
+#else /* __SSE__ */
+	*result = logf(x);
+#endif /* __SSE__ */
+#endif /* microblaze */
+}
+
+void log_i_d(double *result, double x)
+{
+#ifdef microblaze
+	*result = log(x);
+#else
+#ifndef __SSE__
+	const double y = 0.693147180559945286226764; // ln(2)
+	double r;
+
+	__asm__ (
+		"fldl %2;"
+		"fldl %1;"
+		"fyl2x;"
+		"fstpl %0;" : "=m"(r) : "m"(x), "m"(y)
+	);
+
+	*result = r;
+#else /* __SSE__ */
+	*result = log(x);
+#endif /* __SSE__ */
+#endif /* microblaze */
+}
+
 void dwt_util_conv_show_s(
 	const void *src,
 	void *dst,
@@ -8145,9 +8318,6 @@ void dwt_util_conv_show_s(
 {
 	assert( src != NULL && dst != NULL && size_i_big_x >= 0 && size_i_big_y >= 0 );
 
-#ifndef __SSE__
-	dwt_util_log(LOG_ERR, "%s fails due to missing SSE support.\n", __FUNCTION__);
-#else /* __SSE__ */
 	// magic constants
 	const float a = 100.f;
 	const float b = 10.f;
@@ -8159,13 +8329,158 @@ void dwt_util_conv_show_s(
 			const float coeff = *addr2_const_s(src, y, x, stride_x, stride_y);
 			float *log_coeff = addr2_s(dst, y, x, stride_x, stride_y);
 
-#ifdef microblaze
-			// logf is not available on microblaze
-			*log_coeff = log(1.f+fabsf(coeff)*a)/b;
-#else /* microblaze */
-			*log_coeff = logf(1.f+fabsf(coeff)*a)/b;
-#endif/* microblaze */
+			float temp;
+			log_i_s(&temp, 1.f+fabsf(coeff)*a);
+			temp /= b;
+
+			*log_coeff = temp;
 		}
 	}
-#endif /* __SSE__ */
+}
+
+void dwt_util_conv_show_d(
+	const void *src,
+	void *dst,
+	int stride_x,
+	int stride_y,
+	int size_i_big_x,
+	int size_i_big_y)
+{
+	assert( src != NULL && dst != NULL && size_i_big_x >= 0 && size_i_big_y >= 0 );
+
+	// magic constants
+	const double a = 100.;
+	const double b = 10.;
+
+	for(int y = 0; y < size_i_big_y; y++)
+	{
+		for(int x = 0; x < size_i_big_x; x++)
+		{
+			const double coeff = *addr2_const_d(src, y, x, stride_x, stride_y);
+			double *log_coeff = addr2_d(dst, y, x, stride_x, stride_y);
+
+			double temp;
+			log_i_d(&temp, 1.+fabs(coeff)*a);
+			temp /= b;
+
+			*log_coeff = temp;
+		}
+	}
+}
+
+void dwt_util_perf_cdf97_2_s(
+	int stride_x,
+	int stride_y,
+	int size_o_big_x,
+	int size_o_big_y,
+	int size_i_big_x,
+	int size_i_big_y,
+	int j_max,
+	int decompose_one,
+	int zero_padding,
+	int M,
+	int N,
+	int clock_type,
+	float *fwd_secs,
+	float *inv_secs)
+{
+	FUNC_BEGIN;
+
+	assert( M > 0 && N > 0 && fwd_secs && iwt_secs );
+
+	assert( size_o_big_x > 0 && size_o_big_y > 0 && size_i_big_x > 0 && size_i_big_y > 0 );
+
+	// pointer to M pointers to image data
+	void *ptr[M];
+	int j[M];
+	
+	// allocate M images
+	for(int m = 0; m < M; m++)
+	{
+		// copy j_max to j[]
+		j[m] = j_max;
+
+		// allocate
+		dwt_util_alloc_image(
+			&ptr[m],
+			stride_x,
+			stride_y,
+			size_o_big_x,
+			size_o_big_y);
+		
+		// fill with test pattern
+		dwt_util_test_image_fill_s(
+			ptr[m],
+			stride_x,
+			stride_y,
+			size_i_big_x,
+			size_i_big_y,
+			0);
+		
+	}
+
+	*fwd_secs = +INFINITY;
+	*inv_secs = +INFINITY;
+
+	// perform N test loops, select minimum
+	for(int n = 0; n < N; n++)
+	{
+		// start timer
+		const dwt_clock_t time_fwd_start = dwt_util_get_clock(clock_type);
+		// perform M fwd transforms
+		for(int m = 0; m < M; m++)
+		{
+			dwt_cdf97_2f_s(
+				ptr[m],
+				stride_x,
+				stride_y,
+				size_o_big_x,
+				size_o_big_y,
+				size_i_big_x,
+				size_i_big_y,
+				&j[m],
+				decompose_one,
+				zero_padding);
+		}
+		// stop timer
+		const dwt_clock_t time_fwd_stop = dwt_util_get_clock(clock_type);
+		// calc avg
+		const double time_fwd_secs = (double)(time_fwd_stop - time_fwd_start) / M / dwt_util_get_frequency(clock_type);
+		// select min
+		if( time_fwd_secs < *fwd_secs )
+			*fwd_secs = time_fwd_secs;
+
+		// start timer
+		const dwt_clock_t time_inv_start = dwt_util_get_clock(clock_type);
+		// perform M inv transforms
+		for(int m = 0; m < M; m++)
+		{
+			dwt_cdf97_2i_s(
+				ptr[m],
+				stride_x,
+				stride_y,
+				size_o_big_x,
+				size_o_big_y,
+				size_i_big_x,
+				size_i_big_y,
+				j[m],
+				decompose_one,
+				zero_padding);
+		}
+		// stop timer
+		const dwt_clock_t time_inv_stop = dwt_util_get_clock(clock_type);
+		// calc avg
+		const double time_inv_secs = (double)(time_inv_stop - time_inv_start) / M / dwt_util_get_frequency(clock_type);
+		// select min
+		if( time_inv_secs < *inv_secs )
+			*inv_secs = time_inv_secs;
+	}
+
+	// free M images
+	for(int m = 0; m < M; m++)
+	{
+		dwt_util_free_image(&ptr[m]);
+	}
+
+	FUNC_END;
 }

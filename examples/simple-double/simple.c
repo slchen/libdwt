@@ -6,7 +6,7 @@
 
 #include "libdwt.h"
 
-int main()
+int main(int argc, char *argv[])
 {
 	// init platform
 	dwt_util_init();
@@ -15,7 +15,7 @@ int main()
 	const int x = 512, y = 512;
 
 	// compute optimal stride
-	const int stride_x = dwt_util_get_opt_stride(x * sizeof(float)), stride_y = sizeof(float);
+	const int stride_x = dwt_util_get_opt_stride(x * sizeof(double)), stride_y = sizeof(double);
 
 	// some log messages
 	dwt_util_log(LOG_INFO, "Library version is \"%s\".\n", dwt_util_version());
@@ -37,9 +37,9 @@ int main()
 
 	// create test images
 	dwt_util_alloc_image(&data1, stride_x, stride_y, x, y);
-	dwt_util_test_image_fill_s(data1, stride_x, stride_y, x, y, 0);
+	dwt_util_test_image_fill_d(data1, stride_x, stride_y, x, y, 0);
 	dwt_util_alloc_image(&data2, stride_x, stride_y, x, y);
-	dwt_util_test_image_fill_s(data2, stride_x, stride_y, x, y, 0);
+	dwt_util_test_image_fill_d(data2, stride_x, stride_y, x, y, 0);
 	dwt_util_alloc_image(&data3, stride_x, stride_y, x, y);
 
 	// init timer
@@ -53,14 +53,14 @@ int main()
 	time_start = dwt_util_get_clock(type);
 
 	// forward transform
-	dwt_cdf97_2f_s(data1, stride_x, stride_y, x, y, x, y, &j, 0, 0);
+	dwt_cdf97_2f_d(data1, stride_x, stride_y, x, y, x, y, &j, 0, 0);
 
 	// stop timer
 	time_stop = dwt_util_get_clock(type);
 	dwt_util_log(LOG_INFO, "elapsed time: %f secs\n", (double)(time_stop - time_start) / dwt_util_get_frequency(type));
 
 	// convert transform into viewable format
-	dwt_util_conv_show_s(data1, data3, stride_x, stride_y, x, y);
+	dwt_util_conv_show_d(data1, data3, stride_x, stride_y, x, y);
 	
 	dwt_util_log(LOG_INFO, "inverse transform...\n");
 
@@ -68,14 +68,14 @@ int main()
 	time_start = dwt_util_get_clock(type);
 
 	// inverse transform
-	dwt_cdf97_2i_s(data1, stride_x, stride_y, x, y, x, y, j, 0, 0);
+	dwt_cdf97_2i_d(data1, stride_x, stride_y, x, y, x, y, j, 0, 0);
 
 	// stop timer
 	time_stop = dwt_util_get_clock(type);
 	dwt_util_log(LOG_INFO, "elapsed time: %f secs\n", (double)(time_stop - time_start) / dwt_util_get_frequency(type));
 
 	// compare
-	if( dwt_util_compare_s(data1, data2, stride_x, stride_y, x, y) )
+	if( dwt_util_compare_d(data1, data2, stride_x, stride_y, x, y) )
 		dwt_util_log(LOG_INFO, "images differs\n");
 	else
 		dwt_util_log(LOG_INFO, "success\n");
@@ -85,33 +85,13 @@ int main()
 
 	// save images into files
 	dwt_util_log(LOG_INFO, "saving...\n");
-	dwt_util_save_to_pgm_s("data1.pgm", 1.0, data1, stride_x, stride_y, x, y);
-	dwt_util_save_to_pgm_s("data2.pgm", 1.0, data2, stride_x, stride_y, x, y);
-	dwt_util_save_to_pgm_s("data3.pgm", 1.0, data3, stride_x, stride_y, x, y);
+	dwt_util_save_to_pgm_d("data1.pgm", 1.0, data1, stride_x, stride_y, x, y);
+	dwt_util_save_to_pgm_d("data2.pgm", 1.0, data2, stride_x, stride_y, x, y);
+	dwt_util_save_to_pgm_d("data3.pgm", 1.0, data3, stride_x, stride_y, x, y);
 
 	// free allocated memory
 	dwt_util_free_image(&data1);
 	dwt_util_free_image(&data2);
-
-	float fwd_secs, inv_secs;
-
-	dwt_util_perf_cdf97_2_s(
-		stride_x,
-		stride_y,
-		x,
-		y,
-		x,
-		y,
-		j,
-		0,
-		0,
-		1,
-		10,
-		type,
-		&fwd_secs,
-		&inv_secs);
-
-	dwt_util_log(LOG_INFO, "perf: fwd=%f secs (%f fps), inv=%f secs (%f fps)\n", fwd_secs, 1/fwd_secs, inv_secs, 1/inv_secs);
 
 	return 0;
 }

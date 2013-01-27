@@ -244,9 +244,9 @@ void dwt::createTestImage(
 			img.size());
 }
 
-enum subbands conv_band(int band)
+enum dwt_subbands conv_band(int band)
 {
-	enum subbands conv[dwt::DWT_HH+1];
+	enum dwt_subbands conv[dwt::DWT_HH+1];
 
 	conv[dwt::DWT_LL] = ::DWT_LL;
 	conv[dwt::DWT_HL] = ::DWT_HL;

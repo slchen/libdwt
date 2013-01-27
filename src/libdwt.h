@@ -839,22 +839,19 @@ void dwt_util_set_num_workers(
  *   @li 8 for CPU shifted double-loop SIMD algorithm (2 iterations merged, SSE implementation, x86 platform),
  *   @li 9 for CPU shifted double-loop SIMD algorithm (6 iterations merged, SSE implementation, x86 platform).
  *
- * @warning highly experimental
+ * @note This function currently affects only single precision floating point number functions.
+ * @warning experimental
  */
 void dwt_util_set_accel(
 	int accel_type);
 
 /**
  * @brief Initialize workers in UTIA ASVP platform.
- *
- * @warning experimental
  */
 void dwt_util_init();
 
 /**
  * @brief Release all resources allocated in @ref dwt_util_init function.
- *
- * @warning experimental
  */
 void dwt_util_finish();
 
@@ -865,12 +862,29 @@ void dwt_util_finish();
  * This function works with single precision floating point numbers (i.e. float data type).
  *
  * @note Use @ref dwt_util_conv_show_s function before this function call to save a transform.
- * @warning experimental
  */
 int dwt_util_save_to_pgm_s(
 	const char *filename,	///< target file name, e.g. "output.pgm"
 	float max_value, 	///< maximum value of pixel, e.g. 1.0 if image values lie inside an interval [0.0; 1.0]
-	void *ptr,		///< pointer to beginning of image data
+	const void *ptr,	///< pointer to beginning of image data
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y	///< height of nested image (in elements)
+);
+
+/**
+ * @brief Save grayscale image into PGM file.
+ *
+ * See <a href="http://netpbm.sourceforge.net/">the home page for Netpbm</a>.
+ * This function works with double precision floating point numbers (i.e. double data type).
+ *
+ * @note Use @ref dwt_util_conv_show_d function before this function call to save a transform.
+ */
+int dwt_util_save_to_pgm_d(
+	const char *filename,	///< target file name, e.g. "output.pgm"
+	double max_value, 	///< maximum value of pixel, e.g. 1.0 if image values lie inside an interval [0.0; 1.0]
+	const void *ptr,	///< pointer to beginning of image data
 	int stride_x,		///< difference between rows (in bytes)
 	int stride_y,		///< difference between columns (in bytes)
 	int size_i_big_x,	///< width of nested image (in elements)
@@ -899,7 +913,7 @@ int dwt_util_get_num_workers();
 /**
  * @brief Identifier of PicoBlaze operation.
  *
- * @warning highly experimental
+ * @warning experimental
  */
 enum dwt_op
 {
@@ -914,7 +928,7 @@ enum dwt_op
  * Function changes active PicoBlaze firmware. This makes sense only on UTIA
  * EdkDSP platform.
  *
- * @warning highly experimental
+ * @warning experimental
  */
 void dwt_util_switch_op(
 	enum dwt_op op		///< identifier of PicoBlaze operation
@@ -950,24 +964,30 @@ float *dwt_util_allocate_vec_s(
 
 /**
  * @brief Fill vector of floats with simple sequence. Useful for testing.
+ *
+ * @return Return non-zero value if an error occurred.
  */
-void dwt_util_generate_vec_s(
+int dwt_util_generate_vec_s(
 	float *addr,	///< pointer to the vector
 	int size	///< number of vector elements
 );
 
 /**
  * @brief Fill vector with zeros.
+ *
+ * @return Return non-zero value if an error occurred.
  */
-void dwt_util_zero_vec_s(
+int dwt_util_zero_vec_s(
 	float *addr,	///< pointer to the vector
 	int size	///< number of vector elements
 );
 
 /**
  * @brief Copy vector of given size and check if values was transferred correctly.
+ *
+ * @return Return non-zero value if an error occurred.
  */
-void dwt_util_copy_vec_s(
+int dwt_util_copy_vec_s(
 	const float *src,	///< source vector
 	float *dst,		///< destination vector
 	int size		///< number of vector elements
@@ -975,10 +995,10 @@ void dwt_util_copy_vec_s(
 
 /**
  * @brief Compare two vectors.
- * 
- * @warning highly experimental
+ *
+ * @return Return non-zero value in case of the two vectors are different.
  */
-void dwt_util_cmp_vec_s(
+int dwt_util_cmp_vec_s(
 	const float *a,		///< first vector
 	const float *b,		///< second vector
 	int size		///< number of vectors' elements
@@ -1082,7 +1102,16 @@ int dwt_util_is_prime(
 	int N	///< the number to test
 );
 
-enum subbands {
+/**
+ * @brief Find smallest probable prime number not less than @e N.
+ *
+ * @return Return the probable prime found.
+ */
+int dwt_util_next_prime(
+	int N	///< the number
+);
+
+enum dwt_subbands {
 	DWT_LL,		///< subband filtered by LP filter horizontally and vertically
 	DWT_HL,		///< subband filtered by HP horizontally and LP vertically
 	DWT_LH,		///< subband filtered by HP vertically and LP horizontally
@@ -1091,8 +1120,6 @@ enum subbands {
 
 /**
  * @brief Gets pointer to and sizes of the selected subband (LL, HL, LH or HH).
- * 
- * @warning highly experimental
  */
 void dwt_util_subband_s(
 	void *ptr,		///< pointer to beginning of image data
@@ -1103,7 +1130,7 @@ void dwt_util_subband_s(
 	int size_i_big_x,	///< width of nested image (in elements)
 	int size_i_big_y,	///< height of nested image (in elements)
 	int j_max,		///< pointer to the decomposition level of interest
-	enum subbands band,	///< subband of interest (LL, HL, LH, HH)
+	enum dwt_subbands band,	///< subband of interest (LL, HL, LH, HH)
 	void **dst_ptr,		///< here will be stored pointer to beginning of subband data
 	int *dst_size_x,	///< here will be stored width of subband
 	int *dst_size_y		///< here will be stored height of subband
@@ -1111,8 +1138,6 @@ void dwt_util_subband_s(
 
 /**
  * @brief Gets pointer to and sizes of the selected subband (LL, HL, LH or HH).
- * 
- * @warning highly experimental
  */
 void dwt_util_subband_d(
 	void *ptr,		///< pointer to beginning of image data
@@ -1123,7 +1148,7 @@ void dwt_util_subband_d(
 	int size_i_big_x,	///< width of nested image (in elements)
 	int size_i_big_y,	///< height of nested image (in elements)
 	int j_max,		///< pointer to the decomposition level of interest
-	enum subbands band,	///< subband of interest (LL, HL, LH, HH)
+	enum dwt_subbands band,	///< subband of interest (LL, HL, LH, HH)
 	void **dst_ptr,		///< here will be stored pointer to beginning of subband data
 	int *dst_size_x,	///< here will be stored width of subband
 	int *dst_size_y		///< here will be stored height of subband
@@ -1131,8 +1156,6 @@ void dwt_util_subband_d(
 
 /**
  * @brief Gets pointer to and sizes of the selected subband (LL, HL, LH or HH).
- * 
- * @warning experimental
  */
 void dwt_util_subband(
 	void *ptr,		///< pointer to beginning of image data
@@ -1143,7 +1166,7 @@ void dwt_util_subband(
 	int size_i_big_x,	///< width of nested image (in elements)
 	int size_i_big_y,	///< height of nested image (in elements)
 	int j_max,		///< pointer to the decomposition level of interest
-	enum subbands band,	///< subband of interest (LL, HL, LH, HH)
+	enum dwt_subbands band,	///< subband of interest (LL, HL, LH, HH)
 	void **dst_ptr,		///< here will be stored pointer to beginning of subband data
 	int *dst_size_x,	///< here will be stored width of subband
 	int *dst_size_y		///< here will be stored height of subband
@@ -1153,7 +1176,6 @@ void dwt_util_subband(
  * @brief Compute address of given transform coefficient or image pixel.
  * 
  * @warning This function is slow; faster way is calculate the address directly.
- * @warning highly experimental
  */
 float *dwt_util_addr_coeff_s(
 	void *ptr,		///< pointer to beginning of image data
@@ -1167,7 +1189,6 @@ float *dwt_util_addr_coeff_s(
  * @brief Compute address of given transform coefficient or image pixel.
  * 
  * @warning This function is slow; faster way is calculate the address directly.
- * @warning highly experimental
  */
 double *dwt_util_addr_coeff_d(
 	void *ptr,		///< pointer to beginning of image data
@@ -1200,6 +1221,40 @@ void dwt_util_conv_show_s(
 	int stride_y,		///< difference between columns (in bytes)
 	int size_i_big_x,	///< width of nested image (in elements)
 	int size_i_big_y	///< height of nested image (in elements)
+);
+
+/**
+ * @brief Convert transform to viewable format.
+ */
+void dwt_util_conv_show_d(
+	const void *src,	///< transform
+	void *dst,		///< viewable image of transform
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y	///< height of nested image (in elements)
+);
+
+/**
+ * @brief Performance test of 2-D DWT with CDF 9/7 wavelet.
+ *
+ * @warning experimental
+ */
+void dwt_util_perf_cdf97_2_s(
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_o_big_x,	///< width of outer image frame (in elements)
+	int size_o_big_y,	///< height of outer image frame (in elements)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y,	///< height of nested image (in elements)
+	int j_max,		///< the number of intended decomposition levels (scales)
+	int decompose_one,	///< should be row or column of size one pixel decomposed? zero value if not
+	int zero_padding,	///< fill padding in channels with zeros? zero value if not, should be non zero only for sparse decomposition
+	int M,			///< one test loop consists of transform of M images
+	int N,			///< number of test loops performed
+	int clock_type,		///< timer type
+	float *fwd_secs,	///< store resulting time for forward transform here
+	float *inv_secs		///< store resulting time for inverse transform here
 );
 
 /**

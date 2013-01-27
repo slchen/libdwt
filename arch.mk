@@ -23,7 +23,7 @@ ifeq ($(ARCH),x86_64)
 	LDLIBS += -lrt
 endif
 
-# x86_64 without MMX and SSE
+# x86-64 without MMX and SSE
 ifeq ($(ARCH),x86_64+nosse)
 	CROSS_COMPILE = 
 	CFLAGS += -fopenmp -fPIC

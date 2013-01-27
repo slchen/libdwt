@@ -1,3 +1,8 @@
+2013-01-27 David Barina <ibarina@fit.vutbr.cz>
+* Many small bugfixes.
+* Added performance measurement function.
+* Added some example applications.
+
 2013-01-26 David Barina <ibarina@fit.vutbr.cz>
 * Added SSE implementation of the shifted double-loop algorithm with 6
 iterations merged.
