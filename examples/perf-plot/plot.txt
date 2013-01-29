@@ -1,0 +1,110 @@
+set terminal svg enhanced size 900 480
+set output "fwd_arr_stride.svg"
+set xlabel "pixels"
+set ylabel "seconds"
+set title "time of DWT decomposition"
+set format x "%.1s%c"
+set format y "%.1s%c"
+set logscale x
+set logscale y
+
+plot \
+	"data.trans=fwd.threads=2.accel=9.optstride=0.decomp=1.arr=simple.type=float.txt" with lines lc rgb "#ff0000" title "simple (non-opt. stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=1.arr=simple.type=float.txt" with lines lc rgb "#ffcccc" title "simple (optimal stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=0.decomp=1.arr=sparse.type=float.txt" with lines lc rgb "#00ff00" title "sparse (non-opt. stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=1.arr=sparse.type=float.txt" with lines lc rgb "#ccffcc" title "sparse (optimal stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=0.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#0000ff" title "packed (non-opt. stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#ccccff" title "packed (optimal stride)"
+
+set terminal svg enhanced size 900 480
+set output "fwd_arr_stride_full.svg"
+set xlabel "pixels"
+set ylabel "seconds"
+set title "time of DWT decomposition"
+set format x "%.1s%c"
+set format y "%.1s%c"
+set logscale x
+set logscale y
+
+plot \
+	"data.trans=fwd.threads=2.accel=9.optstride=0.decomp=-1.arr=simple.type=float.txt" with lines lc rgb "#ff0000" title "simple (non-opt. stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=-1.arr=simple.type=float.txt" with lines lc rgb "#ffcccc" title "simple (optimal stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=0.decomp=-1.arr=sparse.type=float.txt" with lines lc rgb "#00ff00" title "sparse (non-opt. stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=-1.arr=sparse.type=float.txt" with lines lc rgb "#ccffcc" title "sparse (optimal stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=0.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#0000ff" title "packed (non-opt. stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#ccccff" title "packed (optimal stride)"
+
+set terminal svg enhanced size 900 480
+set output "fwd_arr.svg"
+set xlabel "pixels"
+set ylabel "seconds"
+set title "time of DWT decomposition"
+set format x "%.1s%c"
+set format y "%.1s%c"
+set logscale x
+set logscale y
+
+plot \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=1.arr=simple.type=float.txt" with lines lc rgb "#ffcccc" title "simple (optimal stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=1.arr=sparse.type=float.txt" with lines lc rgb "#ccffcc" title "sparse (optimal stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#ccccff" title "packed (optimal stride)"
+
+set terminal svg enhanced size 900 480
+set output "fwd_arr_full.svg"
+set xlabel "pixels"
+set ylabel "seconds"
+set title "time of DWT decomposition"
+set format x "%.1s%c"
+set format y "%.1s%c"
+set logscale x
+set logscale y
+
+plot \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=-1.arr=simple.type=float.txt" with lines lc rgb "#ffcccc" title "simple (optimal stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=-1.arr=sparse.type=float.txt" with lines lc rgb "#ccffcc" title "sparse (optimal stride)", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#ccccff" title "packed (optimal stride)"
+
+
+set terminal svg enhanced size 900 480
+set output "fwd_packed.svg"
+set xlabel "pixels"
+set ylabel "seconds"
+set title "time of DWT decomposition"
+set format x "%.1s%c"
+set format y "%.1s%c"
+set logscale x
+set logscale y
+
+plot \
+	"data.trans=fwd.threads=2.accel=0.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#000000" title "accel. 0", \
+	"data.trans=fwd.threads=2.accel=1.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#0000ff" title "accel. 1", \
+	"data.trans=fwd.threads=2.accel=2.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#00ff00" title "accel. 2", \
+	"data.trans=fwd.threads=2.accel=3.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#00ffff" title "accel. 3", \
+	"data.trans=fwd.threads=2.accel=4.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#ff0000" title "accel. 4", \
+	"data.trans=fwd.threads=2.accel=5.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#ff00ff" title "accel. 5", \
+	"data.trans=fwd.threads=2.accel=6.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#c0c000" title "accel. 6", \
+	"data.trans=fwd.threads=2.accel=7.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#cc0cfc" title "accel. 7", \
+	"data.trans=fwd.threads=2.accel=8.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#cccccc" title "accel. 8", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=1.arr=packed.type=float.txt" with lines lc rgb "#ffcc00" title "accel. 9"
+
+set terminal svg enhanced size 900 480
+set output "fwd_packed_full.svg"
+set xlabel "pixels"
+set ylabel "seconds"
+set title "time of DWT decomposition"
+set format x "%.1s%c"
+set format y "%.1s%c"
+set logscale x
+set logscale y
+
+plot \
+	"data.trans=fwd.threads=2.accel=0.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#000000" title "accel. 0", \
+	"data.trans=fwd.threads=2.accel=1.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#0000ff" title "accel. 1", \
+	"data.trans=fwd.threads=2.accel=2.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#00ff00" title "accel. 2", \
+	"data.trans=fwd.threads=2.accel=3.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#00ffff" title "accel. 3", \
+	"data.trans=fwd.threads=2.accel=4.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#ff0000" title "accel. 4", \
+	"data.trans=fwd.threads=2.accel=5.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#ff00ff" title "accel. 5", \
+	"data.trans=fwd.threads=2.accel=6.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#c0c000" title "accel. 6", \
+	"data.trans=fwd.threads=2.accel=7.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#cc0cfc" title "accel. 7", \
+	"data.trans=fwd.threads=2.accel=8.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#cccccc" title "accel. 8", \
+	"data.trans=fwd.threads=2.accel=9.optstride=1.decomp=-1.arr=packed.type=float.txt" with lines lc rgb "#ffcc00" title "accel. 9"

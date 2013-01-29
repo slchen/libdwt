@@ -1,3 +1,7 @@
+2013-01-29 David Barina <ibarina@fit.vutbr.cz>
+* Added more examples.
+* Added more complex performance measurement functions.
+
 2013-01-27 David Barina <ibarina@fit.vutbr.cz>
 * Many small bugfixes.
 * Added performance measurement function.

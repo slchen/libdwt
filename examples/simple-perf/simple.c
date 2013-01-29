@@ -1,7 +1,7 @@
 /**
  * @file
  * @author David Barina <ibarina@fit.vutbr.cz>
- * @brief Simple example application showing usage of libdwt functions.
+ * @brief Example application measuring transform performance.
  */
 
 #include "libdwt.h"
@@ -11,11 +11,15 @@ int main()
 	// init platform
 	dwt_util_init();
 
-	// image size
-	const int x = 512, y = 512;
+	// use fast SSE implementation
+	dwt_util_set_accel(9);
+
+	// 1080p image size
+	const int x = 1920, y = 1080;
 
 	// compute optimal stride
 	const int stride_x = dwt_util_get_opt_stride(x * sizeof(float));
+	// size of picture element
 	const int stride_y = sizeof(float);
 
 	// some log messages
@@ -29,10 +33,10 @@ int main()
 	dwt_util_log(LOG_INFO, "Using stride of %i bytes.\n", stride_x);
 
 	// image data
-	void *data1, *data2, *data3;
+	void *data1, *data2;
 
 	// full decomposition
-	int j = -1;
+	int j = 1;
 
 	dwt_util_log(LOG_INFO, "generating test images...\n");
 
@@ -41,7 +45,6 @@ int main()
 	dwt_util_test_image_fill_s(data1, stride_x, stride_y, x, y, 0);
 	dwt_util_alloc_image(&data2, stride_x, stride_y, x, y);
 	dwt_util_test_image_fill_s(data2, stride_x, stride_y, x, y, 0);
-	dwt_util_alloc_image(&data3, stride_x, stride_y, x, y);
 
 	// init timer
 	dwt_clock_t time_start;
@@ -60,9 +63,7 @@ int main()
 	time_stop = dwt_util_get_clock(type);
 	dwt_util_log(LOG_INFO, "elapsed time: %f secs\n", (double)(time_stop - time_start) / dwt_util_get_frequency(type));
 
-	// convert transform into viewable format
-	dwt_util_conv_show_s(data1, data3, stride_x, stride_y, x, y);
-	
+
 	dwt_util_log(LOG_INFO, "inverse transform...\n");
 
 	// start timer
@@ -81,19 +82,26 @@ int main()
 	else
 		dwt_util_log(LOG_INFO, "success\n");
 	
-	// release platform resources
-	dwt_util_finish();
-
-	// save images into files
-	dwt_util_log(LOG_INFO, "saving...\n");
-	dwt_util_save_to_pgm_s("data1.pgm", 1.0, data1, stride_x, stride_y, x, y);
-	dwt_util_save_to_pgm_s("data2.pgm", 1.0, data2, stride_x, stride_y, x, y);
-	dwt_util_save_to_pgm_s("data3.pgm", 1.0, data3, stride_x, stride_y, x, y);
-
 	// free allocated memory
 	dwt_util_free_image(&data1);
 	dwt_util_free_image(&data2);
-	dwt_util_free_image(&data3);
+
+	float fwd_secs, inv_secs;
+
+	// more objective performance test
+	dwt_util_perf_cdf97_2_s(
+		stride_x, stride_y,
+		x, y, x, y,
+		j, 0, 0,
+		1, 100,		// 1 transform per test, 100 test loops
+		type,
+		&fwd_secs,
+		&inv_secs);
+
+	dwt_util_log(LOG_INFO, "performance test: fwd=%f secs (%f fps), inv=%f secs (%f fps)\n", fwd_secs, 1/fwd_secs, inv_secs, 1/inv_secs);
+
+	// release platform resources
+	dwt_util_finish();
 
 	return 0;
 }

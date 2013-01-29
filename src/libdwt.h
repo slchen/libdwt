@@ -1092,6 +1092,16 @@ int dwt_util_get_opt_stride(
 );
 
 /**
+ * Gets data stride according to selected method and cache usage.
+ * 
+ * @return Returns stride in bytes.
+ */
+int dwt_util_get_stride(
+	int min_stride,		///< minimum required stride (in bytes)
+	int opt			///< use optimal stride which should have better performance (set non-zero value for this case here)
+);
+
+/**
  * @brief Determine if a number is probable prime.
  * 
  * Currently uses variant of Fermat primality test for base-2.
@@ -1255,6 +1265,150 @@ void dwt_util_perf_cdf97_2_s(
 	int clock_type,		///< timer type
 	float *fwd_secs,	///< store resulting time for forward transform here
 	float *inv_secs		///< store resulting time for inverse transform here
+);
+
+/**
+ * @brief Performance test of 2-D DWT with CDF 9/7 wavelet.
+ *
+ * @warning experimental
+ */
+void dwt_util_perf_cdf97_2_d(
+	int stride_x,		///< difference between rows (in bytes)
+	int stride_y,		///< difference between columns (in bytes)
+	int size_o_big_x,	///< width of outer image frame (in elements)
+	int size_o_big_y,	///< height of outer image frame (in elements)
+	int size_i_big_x,	///< width of nested image (in elements)
+	int size_i_big_y,	///< height of nested image (in elements)
+	int j_max,		///< the number of intended decomposition levels (scales)
+	int decompose_one,	///< should be row or column of size one pixel decomposed? zero value if not
+	int zero_padding,	///< fill padding in channels with zeros? zero value if not, should be non zero only for sparse decomposition
+	int M,			///< one test loop consists of transform of M images
+	int N,			///< number of test loops performed
+	int clock_type,		///< timer type
+	double *fwd_secs,	///< store resulting time for forward transform here
+	double *inv_secs	///< store resulting time for inverse transform here
+);
+
+/**
+ * @brief Type of storage of the original missized image for fast transform purpose.
+ */
+enum dwt_array
+{
+	DWT_ARR_SIMPLE,		///< enlarge the image to the smallest power of two value not less than original image size
+	DWT_ARR_SPARSE,		///< place the original image into bigger (outer) image of size of power of two value
+	DWT_ARR_PACKED		///< do not enlarge anything
+};
+
+/**
+ * @brief Get sizes (width, height, strides) of appropriately resized image.
+ * @note This function consider 1-channel images.
+ * @warning experimental
+ */
+void dwt_util_get_sizes_s(
+	enum dwt_array array_type,	///< how to extend the original image
+	int size_x,			///< width of original image
+	int size_y,			///< height of original image
+	int opt_stride,			///< use optimal stride
+	int *stride_x,			///< store difference between rows here (in bytes)
+	int *stride_y,			///< store difference between columns here (in bytes)
+	int *size_o_big_x,		///< store width of outer (frame) image frame here (in elements)
+	int *size_o_big_y,		///< store height of outer (frame) image frame here (in elements)
+	int *size_i_big_x,		///< store width of nested (inner) image here (in elements)
+	int *size_i_big_y		///< store height of nested (inner) image here (in elements)
+);
+
+/**
+ * @brief Get sizes (width, height, strides) of appropriately resized image.
+ * @note This function consider 1-channel images.
+ * @warning experimental
+ */
+void dwt_util_get_sizes_d(
+	enum dwt_array array_type,	///< how to extend the original image
+	int size_x,			///< width of original image
+	int size_y,			///< height of original image
+	int opt_stride,			///< use optimal stride
+	int *stride_x,			///< store difference between rows here (in bytes)
+	int *stride_y,			///< store difference between columns here (in bytes)
+	int *size_o_big_x,		///< store width of outer (frame) image frame here (in elements)
+	int *size_o_big_y,		///< store height of outer (frame) image frame here (in elements)
+	int *size_i_big_x,		///< store width of nested (inner) image here (in elements)
+	int *size_i_big_y		///< store height of nested (inner) image here (in elements)
+);
+
+/**
+ * @brief Measure performance of 1-D transform.
+ * @warning experimental
+ */
+void dwt_util_measure_perf_cdf97_1_s(
+	enum dwt_array array_type,	///< how to extend the original image
+	int min_x,			///< starting vector size
+	int max_x,			///< maximal vector size
+	int opt_stride,			///< use optimal stride
+	int j_max,			///< level of decomposition
+	int decompose_one,		///< should be 1
+	int zero_padding,		///< fill residual transform areas with zeros
+	int M,				///< number of transform in one test loop
+	int N,				///< test loops to perform
+	int clock_type,			///< timer type
+	FILE *fwd_plot_data,		///< store resulting plot data for forward transform here (gnuplot compatible format)
+	FILE *inv_plot_data		///< store resulting plot data for inverse transform here (gnuplot compatible format)
+);
+
+/**
+ * @brief Measure performance of 1-D transform.
+ * @warning experimental
+ */
+void dwt_util_measure_perf_cdf97_1_d(
+	enum dwt_array array_type,	///< how to extend the original image
+	int min_x,			///< starting vector size
+	int max_x,			///< maximal vector size
+	int opt_stride,			///< use optimal stride
+	int j_max,			///< level of decomposition
+	int decompose_one,		///< should be 1
+	int zero_padding,		///< fill residual transform areas with zeros
+	int M,				///< number of transform in one test loop
+	int N,				///< test loops to perform
+	int clock_type,			///< timer type
+	FILE *fwd_plot_data,		///< store resulting plot data for forward transform here (gnuplot compatible format)
+	FILE *inv_plot_data		///< store resulting plot data for inverse transform here (gnuplot compatible format)
+);
+
+/**
+ * @brief Measure performance of 2-D transform.
+ * @warning experimental
+ */
+void dwt_util_measure_perf_cdf97_2_s(
+	enum dwt_array array_type,	///< how to extend the original image
+	int min_x,			///< starting vector size
+	int max_x,			///< maximal vector size
+	int opt_stride,			///< use optimal stride
+	int j_max,			///< level of decomposition
+	int decompose_one,		///< decompose up to single coefficient?
+	int zero_padding,		///< fill residual transform areas with zeros
+	int M,				///< number of transform in one test loop
+	int N,				///< test loops to perform
+	int clock_type,			///< timer type
+	FILE *fwd_plot_data,		///< store resulting plot data for forward transform here (gnuplot compatible format)
+	FILE *inv_plot_data		///< store resulting plot data for inverse transform here (gnuplot compatible format)
+);
+
+/**
+ * @brief Measure performance of 2-D transform.
+ * @warning experimental
+ */
+void dwt_util_measure_perf_cdf97_2_d(
+	enum dwt_array array_type,	///< how to extend the original image
+	int min_x,			///< starting vector size
+	int max_x,			///< maximal vector size
+	int opt_stride,			///< use optimal stride
+	int j_max,			///< level of decomposition
+	int decompose_one,		///< decompose up to single coefficient?
+	int zero_padding,		///< fill residual transform areas with zeros
+	int M,				///< number of transform in one test loop
+	int N,				///< test loops to perform
+	int clock_type,			///< timer type
+	FILE *fwd_plot_data,		///< store resulting plot data for forward transform here (gnuplot compatible format)
+	FILE *inv_plot_data		///< store resulting plot data for inverse transform here (gnuplot compatible format)
 );
 
 /**

@@ -372,6 +372,11 @@ int is_valid_data_step_s(const float *data_step)
 #include <stdarg.h> // va_start, va_end
 #include <malloc.h> // memalign
 
+// non-SSE workaround
+#include <float.h>
+#define DWT_CEIL_D(x) ((double)((int)((x)+1.0-DBL_EPSILON)))
+#define DWT_CEIL_S(x) ((float)((int)((x)+1.0f-FLT_EPSILON)))
+
 /** SSE intrinsics */
 #ifdef __SSE__
 	#warning INFO: Using SSE
@@ -1200,7 +1205,10 @@ void dwt_util_alloc_image(
 
 	*pptr = malloc(stride_x*size_o_big_y);
 	if(NULL == *pptr)
+	{
+		dwt_util_log(LOG_ERR, "Unable to allocate memory.\n");
 		dwt_util_abort();
+	}
 }
 
 void dwt_util_free_image(
@@ -6302,8 +6310,9 @@ void dwt_cdf97_2f_s(
 	float *temp = dwt_util_allocate_vec_s(calc_and_set_temp_size(size_o_big_max));
 #else
 	//#define TEMP_OFFSET 0
-	// HACK FIXME: __attribute__ ((aligned (16)))
+	// FIXME(x86) HACK: __attribute__ ((aligned (16)))
 	#define TEMP_OFFSET 3
+	// FIXME(x86) BUG: temp[] is allocated on stack! so stack overflow is caused by big sizes of temp[size]
 	float temp[calc_and_set_temp_size(size_o_big_max)] __attribute__ ((aligned (16)));
 	
 	if( !is_aligned_16(temp) )
@@ -6660,6 +6669,7 @@ void dwt_cdf97_2i_s(
 #ifdef microblaze
 	float *temp = dwt_util_allocate_vec_s(calc_and_set_temp_size(size_o_big_max));
 #else
+	// FIXME(x86) BUG: temp[] is allocated on stack! so stack overflow is caused by big sizes of temp[size]
 	float temp[calc_and_set_temp_size(size_o_big_max)];
 #endif
 	if(NULL == temp)
@@ -8135,6 +8145,11 @@ int dwt_util_get_opt_stride(int min_stride)
 	return get_opt_stride(min_stride);
 }
 
+int dwt_util_get_stride(int min_stride, int opt)
+{
+	return opt ? get_opt_stride(min_stride) : min_stride;
+}
+
 void dwt_util_subband(
 	void *ptr,
 	int stride_x,
@@ -8386,7 +8401,7 @@ void dwt_util_perf_cdf97_2_s(
 {
 	FUNC_BEGIN;
 
-	assert( M > 0 && N > 0 && fwd_secs && iwt_secs );
+	assert( M > 0 && N > 0 && fwd_secs && inv_secs );
 
 	assert( size_o_big_x > 0 && size_o_big_y > 0 && size_i_big_x > 0 && size_i_big_y > 0 );
 
@@ -8445,7 +8460,7 @@ void dwt_util_perf_cdf97_2_s(
 		// stop timer
 		const dwt_clock_t time_fwd_stop = dwt_util_get_clock(clock_type);
 		// calc avg
-		const double time_fwd_secs = (double)(time_fwd_stop - time_fwd_start) / M / dwt_util_get_frequency(clock_type);
+		const float time_fwd_secs = (float)(time_fwd_stop - time_fwd_start) / M / dwt_util_get_frequency(clock_type);
 		// select min
 		if( time_fwd_secs < *fwd_secs )
 			*fwd_secs = time_fwd_secs;
@@ -8470,6 +8485,123 @@ void dwt_util_perf_cdf97_2_s(
 		// stop timer
 		const dwt_clock_t time_inv_stop = dwt_util_get_clock(clock_type);
 		// calc avg
+		const float time_inv_secs = (float)(time_inv_stop - time_inv_start) / M / dwt_util_get_frequency(clock_type);
+		// select min
+		if( time_inv_secs < *inv_secs )
+			*inv_secs = time_inv_secs;
+	}
+
+	// free M images
+	for(int m = 0; m < M; m++)
+	{
+		dwt_util_free_image(&ptr[m]);
+	}
+
+	FUNC_END;
+}
+
+void dwt_util_perf_cdf97_2_d(
+	int stride_x,
+	int stride_y,
+	int size_o_big_x,
+	int size_o_big_y,
+	int size_i_big_x,
+	int size_i_big_y,
+	int j_max,
+	int decompose_one,
+	int zero_padding,
+	int M,
+	int N,
+	int clock_type,
+	double *fwd_secs,
+	double *inv_secs)
+{
+	FUNC_BEGIN;
+
+	assert( M > 0 && N > 0 && fwd_secs && inv_secs );
+
+	assert( size_o_big_x > 0 && size_o_big_y > 0 && size_i_big_x > 0 && size_i_big_y > 0 );
+
+	// pointer to M pointers to image data
+	void *ptr[M];
+	int j[M];
+	
+	// allocate M images
+	for(int m = 0; m < M; m++)
+	{
+		// copy j_max to j[]
+		j[m] = j_max;
+
+		// allocate
+		dwt_util_alloc_image(
+			&ptr[m],
+			stride_x,
+			stride_y,
+			size_o_big_x,
+			size_o_big_y);
+		
+		// fill with test pattern
+		dwt_util_test_image_fill_d(
+			ptr[m],
+			stride_x,
+			stride_y,
+			size_i_big_x,
+			size_i_big_y,
+			0);
+		
+	}
+
+	*fwd_secs = +INFINITY;
+	*inv_secs = +INFINITY;
+
+	// perform N test loops, select minimum
+	for(int n = 0; n < N; n++)
+	{
+		// start timer
+		const dwt_clock_t time_fwd_start = dwt_util_get_clock(clock_type);
+		// perform M fwd transforms
+		for(int m = 0; m < M; m++)
+		{
+			dwt_cdf97_2f_d(
+				ptr[m],
+				stride_x,
+				stride_y,
+				size_o_big_x,
+				size_o_big_y,
+				size_i_big_x,
+				size_i_big_y,
+				&j[m],
+				decompose_one,
+				zero_padding);
+		}
+		// stop timer
+		const dwt_clock_t time_fwd_stop = dwt_util_get_clock(clock_type);
+		// calc avg
+		const double time_fwd_secs = (double)(time_fwd_stop - time_fwd_start) / M / dwt_util_get_frequency(clock_type);
+		// select min
+		if( time_fwd_secs < *fwd_secs )
+			*fwd_secs = time_fwd_secs;
+
+		// start timer
+		const dwt_clock_t time_inv_start = dwt_util_get_clock(clock_type);
+		// perform M inv transforms
+		for(int m = 0; m < M; m++)
+		{
+			dwt_cdf97_2i_d(
+				ptr[m],
+				stride_x,
+				stride_y,
+				size_o_big_x,
+				size_o_big_y,
+				size_i_big_x,
+				size_i_big_y,
+				j[m],
+				decompose_one,
+				zero_padding);
+		}
+		// stop timer
+		const dwt_clock_t time_inv_stop = dwt_util_get_clock(clock_type);
+		// calc avg
 		const double time_inv_secs = (double)(time_inv_stop - time_inv_start) / M / dwt_util_get_frequency(clock_type);
 		// select min
 		if( time_inv_secs < *inv_secs )
@@ -8480,6 +8612,424 @@ void dwt_util_perf_cdf97_2_s(
 	for(int m = 0; m < M; m++)
 	{
 		dwt_util_free_image(&ptr[m]);
+	}
+
+	FUNC_END;
+}
+
+void dwt_util_get_sizes_s(
+	enum dwt_array array_type,
+	int size_x,
+	int size_y,
+	int opt_stride,
+	int *stride_x,
+	int *stride_y,
+	int *size_o_big_x,
+	int *size_o_big_y,
+	int *size_i_big_x,
+	int *size_i_big_y)
+{
+	FUNC_BEGIN;
+
+	assert( size_x > 0 && size_y > 0 );
+
+	assert( stride_x && stride_y && size_o_big_x && size_o_big_y && size_i_big_x && size_i_big_y );
+
+	*stride_x = dwt_util_get_stride(dwt_util_pow2_ceil_log2(size_x) * sizeof(float), opt_stride);
+	*stride_y = sizeof(float);
+
+	*size_o_big_x = size_x;
+	*size_o_big_y = size_y;
+	*size_i_big_x = size_x;
+	*size_i_big_y = size_y;
+
+	if( DWT_ARR_SPARSE == array_type || DWT_ARR_SIMPLE == array_type )
+	{
+		*size_o_big_x = dwt_util_pow2_ceil_log2(*size_o_big_x);
+		*size_o_big_y = dwt_util_pow2_ceil_log2(*size_o_big_y);
+	}
+
+	if( DWT_ARR_SIMPLE == array_type )
+	{
+		*size_i_big_x = *size_i_big_x;
+		*size_i_big_y = *size_i_big_y;
+	}
+
+	FUNC_END;
+}
+
+void dwt_util_get_sizes_d(
+	enum dwt_array array_type,
+	int size_x,
+	int size_y,
+	int opt_stride,
+	int *stride_x,
+	int *stride_y,
+	int *size_o_big_x,
+	int *size_o_big_y,
+	int *size_i_big_x,
+	int *size_i_big_y)
+{
+	FUNC_BEGIN;
+
+	assert( size_x > 0 && size_y > 0 );
+
+	assert( stride_x && stride_y && size_o_big_x && size_o_big_y && size_i_big_x && size_i_big_y );
+
+	*stride_x = dwt_util_get_stride(dwt_util_pow2_ceil_log2(size_x) * sizeof(double), opt_stride);
+	*stride_y = sizeof(double);
+
+	*size_o_big_x = size_x;
+	*size_o_big_y = size_y;
+	*size_i_big_x = size_x;
+	*size_i_big_y = size_y;
+
+	if( DWT_ARR_SPARSE == array_type || DWT_ARR_SIMPLE == array_type )
+	{
+		*size_o_big_x = dwt_util_pow2_ceil_log2(*size_o_big_x);
+		*size_o_big_y = dwt_util_pow2_ceil_log2(*size_o_big_y);
+	}
+
+	if( DWT_ARR_SIMPLE == array_type )
+	{
+		*size_i_big_x = *size_i_big_x;
+		*size_i_big_y = *size_i_big_y;
+	}
+
+	FUNC_END;
+}
+
+// 1.618, 1.333
+const float g_growth_factor_s = 1.28f;
+const float g_growth_factor_d = 1.28;
+
+void dwt_util_measure_perf_cdf97_1_s(
+	enum dwt_array array_type,
+	int min_x,
+	int max_x,
+	int opt_stride,
+	int j_max,
+	int decompose_one,
+	int zero_padding,
+	int M,
+	int N,
+	int clock_type,
+	FILE *fwd_plot_data,
+	FILE *inv_plot_data
+)
+{
+	FUNC_BEGIN;
+
+	assert( min_x > 0 && min_x < max_x );
+
+	assert( M > 0 && N > 0 );
+
+	assert( fwd_plot_data && inv_plot_data );
+
+	const float growth_factor = g_growth_factor_s;
+
+	// for x = min_x to max_x
+	for(int x = min_x; x <= max_x; x = /*ceilf*/DWT_CEIL_S(x * growth_factor))
+	{
+		// fixed y
+		const int y = 1;
+
+		int stride_x;
+		int stride_y;
+		int size_o_big_x;
+		int size_o_big_y;
+		int size_i_big_x;
+		int size_i_big_y;
+
+		// get sizes
+		dwt_util_get_sizes_s(
+			array_type,
+			x, y,
+			opt_stride,
+		        &stride_x,
+			&stride_y,
+			&size_o_big_x,
+			&size_o_big_y,
+			&size_i_big_x,
+			&size_i_big_y
+		);
+
+		dwt_util_log(LOG_DBG, "performance test for [%ix%i] in [%ix%i] with strides (%i, %i)...\n", size_i_big_x, size_i_big_y, size_o_big_x, size_o_big_y, stride_x, stride_y);
+
+		float fwd_secs;
+		float inv_secs;
+
+		// call perf()
+		dwt_util_perf_cdf97_2_s(
+			stride_x,
+			stride_y,
+			size_o_big_x,
+			size_o_big_y,
+			size_i_big_x,
+			size_i_big_y,
+			j_max,
+			decompose_one,
+			zero_padding,
+			M,
+			N,
+			clock_type,
+			&fwd_secs,
+			&inv_secs
+		);
+
+		// printf into file
+		fprintf(fwd_plot_data, "%i\t%.10f\n", x*y, fwd_secs);
+		fprintf(inv_plot_data, "%i\t%.10f\n", x*y, inv_secs);
+
+	}
+
+	FUNC_END;
+}
+
+void dwt_util_measure_perf_cdf97_1_d(
+	enum dwt_array array_type,
+	int min_x,
+	int max_x,
+	int opt_stride,
+	int j_max,
+	int decompose_one,
+	int zero_padding,
+	int M,
+	int N,
+	int clock_type,
+	FILE *fwd_plot_data,
+	FILE *inv_plot_data
+)
+{
+	FUNC_BEGIN;
+
+	assert( min_x > 0 && min_x < max_x );
+
+	assert( M > 0 && N > 0 );
+
+	assert( fwd_plot_data && inv_plot_data );
+
+	const double growth_factor = g_growth_factor_d;
+
+	// for x = min_x to max_x
+	for(int x = min_x; x <= max_x; x = /*ceil*/DWT_CEIL_D(x * growth_factor))
+	{
+		// fixed y
+		const int y = 1;
+
+		int stride_x;
+		int stride_y;
+		int size_o_big_x;
+		int size_o_big_y;
+		int size_i_big_x;
+		int size_i_big_y;
+
+		// get sizes
+		dwt_util_get_sizes_d(
+			array_type,
+			x, y,
+			opt_stride,
+		        &stride_x,
+			&stride_y,
+			&size_o_big_x,
+			&size_o_big_y,
+			&size_i_big_x,
+			&size_i_big_y
+		);
+
+		dwt_util_log(LOG_DBG, "performance test for [%ix%i] in [%ix%i] with strides (%i, %i)...\n", size_i_big_x, size_i_big_y, size_o_big_x, size_o_big_y, stride_x, stride_y);
+
+		double fwd_secs;
+		double inv_secs;
+
+		// call perf()
+		dwt_util_perf_cdf97_2_d(
+			stride_x,
+			stride_y,
+			size_o_big_x,
+			size_o_big_y,
+			size_i_big_x,
+			size_i_big_y,
+			j_max,
+			decompose_one,
+			zero_padding,
+			M,
+			N,
+			clock_type,
+			&fwd_secs,
+			&inv_secs
+		);
+
+		// printf into file
+		fprintf(fwd_plot_data, "%i\t%.10f\n", x*y, fwd_secs);
+		fprintf(inv_plot_data, "%i\t%.10f\n", x*y, inv_secs);
+
+	}
+
+	FUNC_END;
+}
+
+void dwt_util_measure_perf_cdf97_2_s(
+	enum dwt_array array_type,
+	int min_x,
+	int max_x,
+	int opt_stride,
+	int j_max,
+	int decompose_one,
+	int zero_padding,
+	int M,
+	int N,
+	int clock_type,
+	FILE *fwd_plot_data,
+	FILE *inv_plot_data
+)
+{
+	FUNC_BEGIN;
+
+	assert( min_x > 0 && min_x < max_x );
+
+	assert( M > 0 && N > 0 );
+
+	assert( fwd_plot_data && inv_plot_data );
+
+	const float growth_factor = g_growth_factor_s;
+
+	// for x = min_x to max_x
+	for(int x = min_x; x <= max_x; x = /*ceilf*/DWT_CEIL_S(x * growth_factor))
+	{
+		// y is equal to x
+		const int y = x;
+
+		int stride_x;
+		int stride_y;
+		int size_o_big_x;
+		int size_o_big_y;
+		int size_i_big_x;
+		int size_i_big_y;
+
+		// get sizes
+		dwt_util_get_sizes_s(
+			array_type,
+			x, y,
+			opt_stride,
+		        &stride_x,
+			&stride_y,
+			&size_o_big_x,
+			&size_o_big_y,
+			&size_i_big_x,
+			&size_i_big_y
+		);
+
+		dwt_util_log(LOG_DBG, "performance test for [%ix%i] in [%ix%i] with strides (%i, %i)...\n", size_i_big_x, size_i_big_y, size_o_big_x, size_o_big_y, stride_x, stride_y);
+
+		float fwd_secs;
+		float inv_secs;
+
+		// call perf()
+		dwt_util_perf_cdf97_2_s(
+			stride_x,
+			stride_y,
+			size_o_big_x,
+			size_o_big_y,
+			size_i_big_x,
+			size_i_big_y,
+			j_max,
+			decompose_one,
+			zero_padding,
+			M,
+			N,
+			clock_type,
+			&fwd_secs,
+			&inv_secs
+		);
+
+		// printf into file
+		fprintf(fwd_plot_data, "%i\t%.10f\n", x*y, fwd_secs);
+		fprintf(inv_plot_data, "%i\t%.10f\n", x*y, inv_secs);
+
+	}
+
+	FUNC_END;
+}
+
+void dwt_util_measure_perf_cdf97_2_d(
+	enum dwt_array array_type,
+	int min_x,
+	int max_x,
+	int opt_stride,
+	int j_max,
+	int decompose_one,
+	int zero_padding,
+	int M,
+	int N,
+	int clock_type,
+	FILE *fwd_plot_data,
+	FILE *inv_plot_data
+)
+{
+	FUNC_BEGIN;
+
+	assert( min_x > 0 && min_x < max_x );
+
+	assert( M > 0 && N > 0 );
+
+	assert( fwd_plot_data && inv_plot_data );
+
+	const double growth_factor = g_growth_factor_d;
+
+	// for x = min_x to max_x
+	for(int x = min_x; x <= max_x; x = /*ceil*/DWT_CEIL_D(x * growth_factor))
+	{
+		// y is equal to x
+		const int y = x;
+
+		int stride_x;
+		int stride_y;
+		int size_o_big_x;
+		int size_o_big_y;
+		int size_i_big_x;
+		int size_i_big_y;
+
+		// get sizes
+		dwt_util_get_sizes_d(
+			array_type,
+			x, y,
+			opt_stride,
+		        &stride_x,
+			&stride_y,
+			&size_o_big_x,
+			&size_o_big_y,
+			&size_i_big_x,
+			&size_i_big_y
+		);
+
+		dwt_util_log(LOG_DBG, "performance test for [%ix%i] in [%ix%i] with strides (%i, %i)...\n", size_i_big_x, size_i_big_y, size_o_big_x, size_o_big_y, stride_x, stride_y);
+
+		double fwd_secs;
+		double inv_secs;
+
+		// call perf()
+		dwt_util_perf_cdf97_2_d(
+			stride_x,
+			stride_y,
+			size_o_big_x,
+			size_o_big_y,
+			size_i_big_x,
+			size_i_big_y,
+			j_max,
+			decompose_one,
+			zero_padding,
+			M,
+			N,
+			clock_type,
+			&fwd_secs,
+			&inv_secs
+		);
+
+		// printf into file
+		fprintf(fwd_plot_data, "%i\t%.10f\n", x*y, fwd_secs);
+		fprintf(inv_plot_data, "%i\t%.10f\n", x*y, inv_secs);
+
 	}
 
 	FUNC_END;

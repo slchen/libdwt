@@ -33,3 +33,7 @@ upload: all
 .PHONY: run
 run: all
 	./$(BIN)
+
+.PHONY: valgrind
+valgrind: all
+	valgrind --leak-check=full ./$(BIN)
