@@ -1,0 +1,1 @@
+**libdwt** is a cross-platform discrete wavelet transform library implemented in C language. The library implements fast wavelet transform algorithm using lifting scheme. Cohen-Daubechies-Feauveau wavelets with 2 and 4 vanishing moments were used.
